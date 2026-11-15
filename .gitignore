@@ -1,0 +1,17 @@
+# OS junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editors
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+.idea/
+
+# Logs / temp
+*.log
+*.tmp
+Temp/
+obj/
+Logs/
