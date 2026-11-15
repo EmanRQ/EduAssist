@@ -24,6 +24,9 @@
  * ============================================================================
  */
 
+/** Bumped whenever the deployed behaviour changes, so the endpoint can be checked remotely. */
+const CODE_VERSION = 'v3-profiles';
+
 /** @const */
 const RAW_SHEET_NAME = 'Raw_Responses';
 /** @const */
@@ -144,6 +147,7 @@ function doGet(e) {
 
   return respond_({
     ok: true,
+    version: CODE_VERSION,
     service: 'EduAssist logging endpoint',
     usage: 'POST JSON rows here; POST {action:"ask"} for model answers; GET ?action=summary for metrics.',
     liveModel: Boolean(PropertiesService.getScriptProperties().getProperty('GEMINI_API_KEY')),
