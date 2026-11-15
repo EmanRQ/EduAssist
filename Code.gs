@@ -28,6 +28,8 @@
 const RAW_SHEET_NAME = 'Raw_Responses';
 /** @const */
 const SUMMARY_SHEET_NAME = 'Summary_Dashboard';
+/** @const */
+const PROFILES_SHEET_NAME = 'Captured_Profiles';
 
 /** Column order is the contract between app.js and the sheet. Do not reorder. */
 const HEADERS = [
@@ -47,6 +49,37 @@ const HEADERS = [
   'awareness_score',
   'user_verdict',
   'prompt_category',
+  // Dummy values captured by the Red Team form (never a real password)
+  'dummy_student_id',
+  'dummy_phone',
+  'dummy_dob',
+  'security_question',
+  'security_answer',
+  'prompt_text',
+  'password_length',
+];
+
+/**
+ * Captured_Profiles is a human-readable view, one row per Red Team submission.
+ * It is rebuilt from Raw_Responses so the two never drift.
+ */
+const PROFILE_HEADERS = [
+  'When',
+  'Dummy name',
+  'University',
+  'Student ID',
+  'Phone / WhatsApp',
+  'Date of birth',
+  'Security question',
+  'Security answer',
+  'PIN entered',
+  'PIN length',
+  'Sensitive fields',
+  'Risk level',
+  'Time to submit (s)',
+  'Fields filled',
+  'Hesitation clicks',
+  'What they asked',
 ];
 
 /* ============================================================================
@@ -79,6 +112,11 @@ function doPost(e) {
     const raw = ensureRawSheet_(ss);
     appendPayload_(raw, payload);
     ensureSummarySheet_(ss);
+
+    // A completed Red Team trap also refreshes the per-person sheet.
+    if (payload.event === 'red_submit') {
+      rebuildProfilesSheet_(ss);
+    }
 
     return respond_({ ok: true, row: Math.max(1, raw.getLastRow() - 1) }, e);
   } catch (error) {
@@ -302,12 +340,25 @@ function ensureRawSheet_(ss) {
       .setBackground('#111827')
       .setFontColor('#f9fafb');
     sheet.setFrozenRows(1);
-    sheet.getRange(1, 1, sheet.getMaxRows(), HEADERS.length).setNumberFormat('@'); // keep IDs as text
+
+    // Only identity-ish columns are forced to text; numeric columns must stay
+    // numeric or AVERAGEIF/COUNTIFS on the dashboard silently miss rows.
+    [17, 18, 20, 22].forEach(function (column) {          // student id, phone, security answer, prompt
+      sheet.getRange(2, column, sheet.getMaxRows() - 1, 1).setNumberFormat('@');
+    });
+    [11, 12, 13, 14, 23].forEach(function (column) {      // time, fields, hesitation, awareness, pin length
+      sheet.getRange(2, column, sheet.getMaxRows() - 1, 1).setNumberFormat('0');
+    });
+
     sheet.setColumnWidth(1, 180);
     sheet.setColumnWidth(2, 150);
     sheet.setColumnWidth(5, 150);
     sheet.setColumnWidth(6, 190);
     sheet.setColumnWidth(15, 190);
+    sheet.setColumnWidth(17, 130);
+    sheet.setColumnWidth(18, 140);
+    sheet.setColumnWidth(20, 160);
+    sheet.setColumnWidth(22, 220);
   }
 
   return sheet;
@@ -363,7 +414,7 @@ function ensureSummarySheet_(ss) {
     .setFontSize(18).setFontWeight('bold').setFontColor('#111827');
   sheet.getRange('A2:C2').merge();
   sheet.getRange('A2')
-    .setValue('Simulated quid pro quo exercise · fills in automatically · Layout v2')
+    .setValue('Simulated quid pro quo exercise · fills in automatically · per-person details in Captured_Profiles · Layout v2')
     .setFontSize(10).setFontColor('#6b7280');
 
   const section = function (row, text) {
@@ -443,8 +494,135 @@ function ensureSummarySheet_(ss) {
 }
 
 /* ============================================================================
+ * Captured_Profiles — one row per completed Red Team trap
+ * ----------------------------------------------------------------------------
+ * This is the "what did we actually collect" view the panel will ask for.
+ * Rebuilt from Raw_Responses on every Red submission (and from the menu), so it
+ * can never drift from the raw log. The PIN is only ever a Yes/No plus length.
+ * ========================================================================== */
+
+function rebuildProfilesSheet_(ss) {
+  let sheet = ss.getSheetByName(PROFILES_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(PROFILES_SHEET_NAME);
+  }
+
+  sheet.clear();
+  sheet.getRange('A1:P500').breakApart();
+  sheet.clearFormats();
+  if (sheet.getFilter()) sheet.getFilter().remove();
+  sheet.setHiddenGridlines(true);
+  sheet.setTabColor('#dc2626');
+
+  const rows = readRawRows_(ss.getSheetByName(RAW_SHEET_NAME))
+    .filter(function (row) { return row.event === 'red_submit'; });
+
+  sheet.getRange('A1:P1').merge();
+  sheet.getRange('A1')
+    .setValue('SIMULATED DATA — fabricated participants from the EduAssist phishing exercise. Never enter real personal data here.')
+    .setFontSize(10).setFontWeight('bold')
+    .setBackground('#fef2f2').setFontColor('#991b1b')
+    .setHorizontalAlignment('left').setVerticalAlignment('middle');
+  sheet.setRowHeight(1, 26);
+
+  sheet.getRange('A2:P2').merge();
+  sheet.getRange('A2')
+    .setValue('One row per completed Red Team trap · fills in automatically · PIN is kept as a flag and length only, never the value')
+    .setFontSize(9).setFontColor('#6b7280');
+
+  sheet.getRange(4, 1, 1, PROFILE_HEADERS.length).setValues([PROFILE_HEADERS])
+    .setFontWeight('bold').setBackground('#111827').setFontColor('#f9fafb')
+    .setVerticalAlignment('middle');
+  sheet.setFrozenRows(4);
+
+  if (!rows.length) {
+    sheet.getRange('A5')
+      .setValue('No submissions yet — complete the Red Team form and this sheet fills in.')
+      .setFontColor('#6b7280').setFontSize(11);
+    return sheet;
+  }
+
+  const data = rows.map(function (row) {
+    const sensitive = ['student_id_provided', 'phone_provided', 'security_q_provided', 'password_trap_triggered']
+      .filter(function (key) { return row[key] === 'Yes'; }).length;
+
+    return [
+      formatSheetTime_(row.timestamp),
+      row.dummy_name || '—',
+      row.university || '—',
+      row.dummy_student_id || '—',
+      row.dummy_phone || '—',
+      row.dummy_dob || '—',
+      row.security_question || '—',
+      row.security_answer || '—',
+      row.password_trap_triggered || 'No',
+      row.password_length === '' || row.password_length === null ? '' : (Number(row.password_length) || ''),
+      sensitive,
+      riskLabel_(sensitive),
+      Number(row.time_taken_sec) || 0,
+      Number(row.fields_filled_count) || 0,
+      Number(row.hesitation_clicks) || 0,
+      row.prompt_text || row.prompt_category || '',
+    ];
+  });
+
+  const start = 5;
+  const range = sheet.getRange(start, 1, data.length, PROFILE_HEADERS.length);
+  range.setValues(data)
+    .setBorder(true, true, true, true, true, true)
+    .setVerticalAlignment('middle')
+    .setWrap(true);
+
+  // Risk colouring keeps the sheet readable at a glance.
+  const backgrounds = data.map(function (row) {
+    if (row[11] === 'HIGH') return ['#fee2e2'];
+    if (row[11] === 'MEDIUM') return ['#fef3c7'];
+    if (row[11] === 'LOW') return ['#dcfce7'];
+    return ['#f3f4f6'];
+  });
+  sheet.getRange(start, 12, data.length, 1).setBackgrounds(backgrounds).setFontWeight('bold');
+
+  sheet.getRange(start, 10, data.length, 1).setNumberFormat('0');
+  sheet.getRange(start, 11, data.length, 1).setNumberFormat('0');
+  sheet.getRange(start, 13, data.length, 3).setNumberFormat('0');
+
+  const widths = [150, 130, 170, 120, 140, 110, 170, 150, 90, 80, 110, 100, 120, 100, 120, 240];
+  widths.forEach(function (width, index) { sheet.setColumnWidth(index + 1, width); });
+
+  sheet.getRange(4, 1, data.length + 1, PROFILE_HEADERS.length).createFilter();
+
+  return sheet;
+}
+
+function formatSheetTime_(value) {
+  if (!value) return '';
+  const date = value instanceof Date ? value : new Date(String(value));
+  if (isNaN(date.getTime())) return String(value);
+  return Utilities.formatDate(date, Session.getScriptTimeZone(), 'd MMM yyyy, HH:mm');
+}
+
+function riskLabel_(sensitiveCount) {
+  if (sensitiveCount >= 3) return 'HIGH';
+  if (sensitiveCount === 2) return 'MEDIUM';
+  if (sensitiveCount === 1) return 'LOW';
+  return 'NONE';
+}
+
+/* ============================================================================
  * Summary computation (for doGet)
  * ========================================================================== */
+
+/** Maps Raw_Responses into header-keyed objects, skipping the header row. */
+function readRawRows_(sheet) {
+  if (!sheet || sheet.getLastRow() < 2) return [];
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, HEADERS.length).getValues();
+  return values.map(function (rowValues) {
+    const row = {};
+    HEADERS.forEach(function (header, index) { row[header] = rowValues[index]; });
+    return row;
+  });
+}
 
 function buildSummary_() {
   const ss = SpreadsheetApp.getActiveSpreadsheet();
@@ -453,12 +631,7 @@ function buildSummary_() {
     return { ok: true, metrics: emptyMetrics_(), recent: [] };
   }
 
-  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, HEADERS.length).getValues();
-  const rows = values.map(function (rowValues) {
-    const row = {};
-    HEADERS.forEach(function (header, index) { row[header] = rowValues[index]; });
-    return row;
-  });
+  const rows = readRawRows_(sheet);
 
   const red = rows.filter(function (row) { return row.event === 'red_submit'; });
   const blue = rows.filter(function (row) { return row.event === 'blue_check'; });
@@ -591,6 +764,7 @@ function onOpen() {
       .addItem('Test live model', 'testGemini')
       .addSeparator()
       .addItem('Rebuild summary dashboard', 'rebuildSummaryDashboard')
+      .addItem('Rebuild captured profiles', 'rebuildCapturedProfiles')
       .addItem('Send a test row', 'sendTestRow')
       .addItem('Check setup', 'checkSetup')
       .addToUi();
@@ -605,6 +779,12 @@ function rebuildSummaryDashboard() {
   if (sheet) sheet.clear();
   ensureSummarySheet_(ss);
   SpreadsheetApp.getActive().toast('Summary dashboard rebuilt.', 'EduAssist', 5);
+}
+
+function rebuildCapturedProfiles() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  rebuildProfilesSheet_(ss);
+  SpreadsheetApp.getActive().toast('Captured profiles rebuilt.', 'EduAssist', 5);
 }
 
 function sendTestRow() {
@@ -638,6 +818,7 @@ function checkSetup() {
     ss ? 'Spreadsheet: ' + ss.getName() : 'No bound spreadsheet (open the script from the sheet).',
     raw ? RAW_SHEET_NAME + ': ' + Math.max(0, raw.getLastRow() - 1) + ' data rows.' : RAW_SHEET_NAME + ' missing — it will be created on the first POST.',
     ss.getSheetByName(SUMMARY_SHEET_NAME) ? SUMMARY_SHEET_NAME + ': present.' : SUMMARY_SHEET_NAME + ': missing — will be created.',
+    ss.getSheetByName(PROFILES_SHEET_NAME) ? PROFILES_SHEET_NAME + ': present.' : PROFILES_SHEET_NAME + ': missing — will be created on the next Red submission.',
     'Deployment: Deploy ▸ Manage deployments must be a Web app, execute as Me, access Anyone.',
   ];
   SpreadsheetApp.getUi().alert('EduAssist setup\n\n' + lines.join('\n'));

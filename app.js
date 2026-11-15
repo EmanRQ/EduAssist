@@ -299,6 +299,13 @@ function buildRow(partial) {
     awareness_score: '',
     user_verdict: '',
     prompt_category: '',
+    dummy_student_id: '',
+    dummy_phone: '',
+    dummy_dob: '',
+    security_question: '',
+    security_answer: '',
+    prompt_text: '',
+    password_length: '',
   }, partial);
 }
 
@@ -944,6 +951,15 @@ function handleRedSubmit(event) {
     hesitation_clicks: state.red.hesitation,
     prompt_category: state.red.promptCategory || 'none',
     user_verdict: 'completed red team lure',
+    // Dummy values, recorded so the per-person sheet can show what was handed
+    // over. Every participant is told to use fake data. The PIN is never here.
+    dummy_student_id: studentId,
+    dummy_phone: phone,
+    dummy_dob: dob,
+    security_question: secQuestion,
+    security_answer: secAnswer,
+    prompt_text: ($('#promptInput').value || '').trim().slice(0, 300),
+    password_length: passwordFlag.length,
   });
 
   state.red.submitted = true;

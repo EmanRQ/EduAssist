@@ -169,6 +169,13 @@ Every row in `Raw_Responses` uses this fixed column order (defined in `HEADERS` 
 | N | `awareness_score` | 0–100 | Blue Team quiz score |
 | O | `user_verdict` | text | `completed red team lure`, `High awareness`, … |
 | P | `prompt_category` | text | `business_strategy`, `programming`, `networking`, `custom` |
+| Q | `dummy_student_id` | text | The dummy matric number typed into the form |
+| R | `dummy_phone` | text | The dummy phone/WhatsApp number typed in |
+| S | `dummy_dob` | text | The dummy date of birth |
+| T | `security_question` | text | Selected question (e.g. "First pet's name") |
+| U | `security_answer` | text | The dummy answer typed in |
+| V | `prompt_text` | text | What the participant asked the helper (300 chars) |
+| W | `password_length` | integer | Length only — **the value is never sent** |
 
 ### Summary_Dashboard
 
@@ -189,13 +196,36 @@ Technical counters (timings, hesitation clicks, mode switches, per-event rows) s
 Run **EduAssist ▸ Rebuild summary dashboard** once after updating `Code.gs` — the dashboard is
 rebuilt whenever its layout marker changes.
 
+### Captured_Profiles
+
+The "what did we actually collect" view: one row per completed Red Team trap, rebuilt from
+`Raw_Responses` automatically on every submission (or **EduAssist ▸ Rebuild captured profiles**).
+
+| Column | Shows |
+|---|---|
+| When | Friendly timestamp (e.g. `16 Nov 2026, 14:03`) |
+| Dummy name / University | What was typed |
+| Student ID / Phone / DOB | The dummy values |
+| Security question / answer | The selected question and dummy answer |
+| PIN entered / PIN length | `Yes`/`No` and the length only |
+| Sensitive fields | 0–4 count |
+| Risk level | `HIGH` (3–4 fields), `MEDIUM` (2), `LOW` (1), `NONE` |
+| Time to submit / Fields filled / Hesitation clicks | Behavioural signals |
+| What they asked | The prompt they typed |
+
+Risk cells are colour-coded red/amber/green, the header row is frozen and filterable, and a banner
+at the top states that every row is fabricated. This sheet is what to screenshot for the report.
+
 ---
 
 ## 5. What the app deliberately does *not* do
 
 - **No real passwords.** `readPasswordFlag()` in `app.js` reads the value, keeps only the length,
   and blanks the input before building the payload. The raw string never reaches state,
-  `localStorage` or the network. The sheet only ever sees `Yes`/`No`.
+  `localStorage` or the network. The sheet only ever sees `Yes`/`No` and a length.
+- **Dummy form values *are* stored** — that is the point of the exercise: the report needs to show
+  exactly what an attacker would walk away with. The consent screen and the sheet banner both say
+  the data must be fabricated, and the demo runs behind your sandbox PIN.
 - **No third-party analytics or fonts beyond Google Fonts / Tailwind CDN.** No tracking pixels.
 - **No authentication.** This is a demo; the sheet endpoint accepts anonymous writes by design
   so participants can submit from their own phones. If you run it with a real cohort, consider
