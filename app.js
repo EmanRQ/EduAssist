@@ -37,6 +37,10 @@ const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyNwKF_HQ5I_E
 
 const CONFIG = {
   endpointReady: /^https:\/\/script\.google\.com\//.test(GOOGLE_SCRIPT_URL),
+  // Flipped on by probeLiveModel() once the deployment reports a configured key,
+  // so an out-of-date deployment never receives "ask" traffic.
+  liveModel: false,
+  liveModelTimeoutMs: 25000,
   keys: {
     consent: 'eduassist.consent.v1',
     session: 'eduassist.sessionId.v1',
@@ -365,7 +369,7 @@ function logEvent(partial) {
 const MODE_COPY = {
   red: {
     badge: 'Simulation Active: Unverified AI Helper',
-    chatSub: 'Simulated assistant · full answers locked behind student verification',
+    chatSub: 'Unverified live model · full answers locked behind student verification',
     status: 'Unverified',
     bannerTitle: 'Now in Red Team (attack) mode',
     bannerText:
@@ -374,7 +378,7 @@ const MODE_COPY = {
   },
   blue: {
     badge: 'Verified Standard: Privacy-First Helper',
-    chatSub: 'Simulated assistant · no personal data required to get an answer',
+    chatSub: 'Verified live model · no personal data required',
     status: 'Verified',
     bannerTitle: 'Now in Blue Team (defensive) mode',
     bannerText:
@@ -517,6 +521,133 @@ function wireConsent() {
    7. Scripted helper
    -------------------------------------------------------------------------- */
 
+/**
+ * Asks the Apps Script proxy for a real model answer. Returns null on any
+ * failure (no key configured, quota, network, timeout) so the UI can fall back
+ * to the scripted teaching answers without breaking the simulation.
+ */
+async function fetchLiveAnswer(prompt) {
+  if (!CONFIG.endpointReady || !CONFIG.liveModel) return null;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), CONFIG.liveModelTimeoutMs);
+
+  try {
+    const response = await fetch(GOOGLE_SCRIPT_URL, {
+      method: 'POST',
+      // text/plain keeps this a "simple" request: no CORS preflight, and the
+      // Apps Script echo response does send Access-Control-Allow-Origin.
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify({
+        action: 'ask',
+        prompt,
+        mode: state.mode === MODE.BLUE ? 'Blue_Team' : 'Red_Team',
+      }),
+      signal: controller.signal,
+      redirect: 'follow',
+    });
+
+    if (!response.ok) return null;
+    const data = await response.json();
+    if (!data || data.ok !== true || typeof data.answer !== 'string' || !data.answer.trim()) return null;
+    return data;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
+ * Checks the deployment's health payload before sending any "ask" traffic.
+ * The endpoint reports liveModel: true only when the newer doPost exists AND a
+ * GEMINI_API_KEY is stored, so an out-of-date deployment never receives prompts.
+ */
+async function probeLiveModel() {
+  if (!CONFIG.endpointReady) return;
+  try {
+    const response = await fetch(GOOGLE_SCRIPT_URL, { cache: 'no-store', redirect: 'follow' });
+    if (!response.ok) return;
+    const data = await response.json();
+    CONFIG.liveModel = Boolean(
+      data &&
+      data.service === 'EduAssist logging endpoint' &&
+      data.liveModel === true
+    );
+  } catch {
+    CONFIG.liveModel = false;
+  }
+}
+
+function stripInlineMarkdown(text) {
+  return String(text)
+    .replace(/^>\s?/, '')
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/__(.+?)__/g, '$1')
+    .replace(/`([^`]+)`/g, '$1')
+    .trim();
+}
+
+/**
+ * Minimal, injection-safe markdown renderer: headings, "- " bullets, fenced
+ * code and paragraphs, all built with textContent. Anything the model invents
+ * is treated as text.
+ */
+function renderModelText(container, text) {
+  const lines = String(text).replace(/\r\n/g, '\n').split('\n');
+  let list = null;
+  let code = null;
+
+  const flushList = () => {
+    if (list) {
+      container.appendChild(list);
+      list = null;
+    }
+  };
+
+  lines.forEach((raw) => {
+    const line = raw.trim();
+
+    if (line.startsWith('```')) {
+      flushList();
+      if (code) {
+        container.appendChild(code);
+        code = null;
+      } else {
+        code = el('pre');
+      }
+      return;
+    }
+
+    if (code) {
+      code.textContent += (code.textContent ? '\n' : '') + raw;
+      return;
+    }
+
+    if (!line) {
+      flushList();
+      return;
+    }
+
+    if (/^#{1,6}\s+/.test(line)) {
+      flushList();
+      container.appendChild(el('h4', null, stripInlineMarkdown(line.replace(/^#{1,6}\s+/, ''))));
+      return;
+    }
+
+    if (/^[-*•]\s+/.test(line)) {
+      if (!list) list = el('ul');
+      list.appendChild(el('li', null, stripInlineMarkdown(line.replace(/^[-*•]\s+/, ''))));
+      return;
+    }
+
+    flushList();
+    container.appendChild(el('p', null, stripInlineMarkdown(line)));
+  });
+
+  flushList();
+  if (code) container.appendChild(code);
+}
+
 function findSample(text) {
   const lower = text.toLowerCase();
   return SAMPLE_PROMPTS.find((sample) => {
@@ -602,7 +733,7 @@ function showTyping(area) {
   return wrap;
 }
 
-function askHelper() {
+async function askHelper() {
   const input = $('#promptInput');
   const text = (input.value || '').trim() || SAMPLE_PROMPTS[0].question;
   if (!text) return;
@@ -611,78 +742,107 @@ function askHelper() {
   const sample = findSample(text) || buildCustomAnswer(text);
   state.red.promptCategory = sample.category;
 
+  const modeAtAsk = state.mode;
   const area = $('#answerArea');
+  const askBtn = $('#askBtn');
+
+  askBtn.disabled = true;
   setStatus('Thinking…');
   showTyping(area);
 
-  window.setTimeout(() => {
-    area.replaceChildren();
+  const live = await fetchLiveAnswer(text);
 
-    const meta = el('div', 'answer__meta');
-    meta.appendChild(el('span', null, state.mode === MODE.BLUE ? 'Verified answer' : 'Teaser only'));
-    meta.appendChild(el('span', null, '·'));
-    meta.appendChild(el('span', null, 'scripted response'));
-    area.appendChild(meta);
+  // The user might have flipped modes while the model was thinking.
+  if (modeAtAsk !== state.mode) {
+    askBtn.disabled = false;
+    setStatus(state.mode === MODE.BLUE ? 'Verified' : 'Ready');
+    renderAnswerPlaceholder(state.mode);
+    return;
+  }
 
-    const teaser = el('div', 'answer__block');
-    renderBlocks(teaser, [{ type: 'p', text: sample.teaser }]);
-    area.appendChild(teaser);
+  // Keep the typing indicator visible for a beat even on fast responses.
+  await new Promise((resolve) => setTimeout(resolve, live ? 350 : CONFIG.typingDelayMs));
 
-    if (state.mode === MODE.BLUE) {
+  area.replaceChildren();
+
+  const meta = el('div', 'answer__meta');
+  meta.appendChild(el('span', null, modeAtAsk === MODE.BLUE ? 'Verified answer' : 'Teaser only'));
+  meta.appendChild(el('span', null, '·'));
+  meta.appendChild(el('span', null, live
+    ? 'live model · ' + (live.model || 'gemini')
+    : 'scripted fallback'));
+  area.appendChild(meta);
+
+  if (modeAtAsk === MODE.BLUE) {
+    if (live) {
+      const full = el('div', 'answer__block');
+      renderModelText(full, live.answer);
+      area.appendChild(full);
+    } else {
       const full = el('div', 'answer__block');
       renderBlocks(full, sample.full);
       area.appendChild(full);
-
-      const note = el('div', 'answer__block');
-      const h = el('h4', null, 'What this mode did not do');
-      const ul = el('ul');
-      [
-        'It did not ask for your name, matric number, phone number, date of birth or a security answer.',
-        'It did not hide the answer behind a verification wall.',
-        'It logged only an anonymous session ID and an optional nickname.',
-      ].forEach((item) => ul.appendChild(el('li', null, item)));
-      note.appendChild(h);
-      note.appendChild(ul);
-      area.appendChild(note);
-      setStatus('Verified');
-      return;
     }
 
-    // Red mode: lock the full answer behind the verification form.
-    const lock = el('div', 'lock');
-    lock.setAttribute('role', 'button');
-    lock.setAttribute('tabindex', '0');
-    lock.dataset.hesitation = 'true';
+    const note = el('div', 'answer__block');
+    const h = el('h4', null, 'What this mode did not do');
+    const ul = el('ul');
+    [
+      'It did not ask for your name, matric number, phone number, date of birth or a security answer.',
+      'It did not hide the answer behind a verification wall.',
+      'It logged only an anonymous session ID and an optional nickname.',
+    ].forEach((item) => ul.appendChild(el('li', null, item)));
+    note.appendChild(h);
+    note.appendChild(ul);
+    area.appendChild(note);
 
-    const preview = el('div', 'lock__preview');
-    preview.textContent = sample.full.map((b) => b.text || (b.items || []).join(' ')).join(' ').slice(0, 420);
-    preview.setAttribute('aria-hidden', 'true');
+    setStatus('Verified');
+    askBtn.disabled = false;
+    return;
+  }
 
-    const body = el('div', 'lock__body');
-    body.appendChild(el('span', 'lock__icon', '🔒'));
-    body.appendChild(el('div', 'lock__title', 'Full answer locked'));
-    body.appendChild(el('div', 'lock__text', 'Complete the free student verification to unlock the worked solution, marking notes and lecturer-style feedback.'));
-    const cta = el('span', 'btn btn--primary btn--sm', 'Verify my student profile →');
-    body.appendChild(cta);
+  // Red mode: show the teaser, then lock the complete answer.
+  const teaserText = live ? live.answer : sample.teaser;
+  const teaser = el('div', 'answer__block');
+  renderModelText(teaser, teaserText);
+  area.appendChild(teaser);
 
-    lock.appendChild(preview);
-    lock.appendChild(body);
+  const lock = el('div', 'lock');
+  lock.setAttribute('role', 'button');
+  lock.setAttribute('tabindex', '0');
+  lock.dataset.hesitation = 'true';
 
-    const goToForm = () => {
-      $('#redPanel').scrollIntoView({ behavior: 'smooth', block: 'center' });
-      $('#fName').focus({ preventScroll: true });
-    };
-    lock.addEventListener('click', goToForm);
-    lock.addEventListener('keydown', (event) => {
-      if (event.key === 'Enter' || event.key === ' ') {
-        event.preventDefault();
-        goToForm();
-      }
-    });
+  const preview = el('div', 'lock__preview');
+  preview.textContent = live
+    ? 'Worked solution · marking notes · lecturer-style feedback · exam-ready structure · common mistakes · full references'
+    : sample.full.map((b) => b.text || (b.items || []).join(' ')).join(' ').slice(0, 420);
+  preview.setAttribute('aria-hidden', 'true');
 
-    area.appendChild(lock);
-    setStatus('Locked');
-  }, CONFIG.typingDelayMs);
+  const body = el('div', 'lock__body');
+  body.appendChild(el('span', 'lock__icon', '🔒'));
+  body.appendChild(el('div', 'lock__title', 'Full answer locked'));
+  body.appendChild(el('div', 'lock__text', 'Complete the free student verification to unlock the worked solution, marking notes and lecturer-style feedback.'));
+  const cta = el('span', 'btn btn--primary btn--sm', 'Verify my student profile →');
+  body.appendChild(cta);
+
+  lock.appendChild(preview);
+  lock.appendChild(body);
+
+  const goToForm = () => {
+    $('#redPanel').scrollIntoView({ behavior: 'smooth', block: 'center' });
+    $('#fName').focus({ preventScroll: true });
+  };
+  lock.addEventListener('click', goToForm);
+  lock.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' || event.key === ' ') {
+      event.preventDefault();
+      goToForm();
+    }
+  });
+
+  area.appendChild(lock);
+  setStatus('Locked');
+  askBtn.disabled = false;
 }
 
 function renderSampleChips() {
@@ -1026,8 +1186,9 @@ function computeMetrics(rows) {
   const red = rows.filter((row) => row.event === 'red_submit');
   const blue = rows.filter((row) => row.event === 'blue_check');
   const switches = rows.filter((row) => row.event === 'mode_switch');
+  const engaged = rows.filter((row) => row.event === 'red_submit' || row.event === 'blue_check');
 
-  const sessions = new Set(rows.map((row) => row.session_id).filter(Boolean));
+  const sessions = new Set(engaged.map((row) => row.session_id).filter(Boolean));
 
   const fields = [
     { key: 'student_id_provided', label: 'Student ID' },
@@ -1060,7 +1221,7 @@ function computeMetrics(rows) {
     awarenessAvg: awarenessValues.length
       ? Math.round(awarenessValues.reduce((sum, value) => sum + value, 0) / awarenessValues.length)
       : null,
-    recent: rows.slice(-6).reverse(),
+    recent: rows.filter((row) => row.event !== 'session_start').slice(-6).reverse(),
   };
 }
 
@@ -1234,6 +1395,7 @@ function init() {
   renderSampleChips();
   setMode(MODE.RED, { initial: true, log: false });
   renderAnswerPlaceholder(MODE.RED);
+  probeLiveModel();
 
   state.consented = consentAlreadyGiven();
   if (state.consented) hideConsent();

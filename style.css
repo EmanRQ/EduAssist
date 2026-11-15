@@ -104,6 +104,19 @@ h4 { font-size: 0.95rem; font-weight: 600; }
 p { margin: 0 0 0.9em; }
 p:last-child { margin-bottom: 0; }
 
+/* Tailwind's preflight removes list markers; restore them for prose blocks. */
+ul, ol { padding-left: 1.25rem; margin: 0 0 0.8rem; }
+ul { list-style: disc; }
+ol { list-style: decimal; }
+li::marker { color: var(--accent); }
+
+.panel .trust-list,
+.exposure-list,
+.attack-list,
+.recent,
+.stat-list,
+.chips { list-style: none; padding-left: 0; margin-left: 0; }
+
 a { color: var(--accent); text-decoration: none; }
 a:hover { text-decoration: underline; }
 

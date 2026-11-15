@@ -112,9 +112,25 @@ anyone with the link can append rows, which is required for anonymous participan
 3. In the web app, complete a Red Team submission, then open **Live analytics** — the source
    label should read *Google Sheet (live)*.
 
-> **Re-deploying after edits:** Apps Script keeps serving the old code until you publish a new
-> version. Use **Deploy ▸ Manage deployments ▸ ✏️ ▸ Version: New version ▸ Deploy**, keeping the
-> same `/exec` URL.
+### 2.5 Turn on live model answers (free)
+
+Without a key the helper falls back to hand-written teaching answers, clearly labelled
+**scripted fallback**. With a key it answers any prompt using Gemini Flash.
+
+1. Get a free key at <https://aistudio.google.com/apikey> (Google account, no billing needed).
+2. In the spreadsheet: **EduAssist ▸ Set Gemini API key…** and paste it.
+   *Alternative:* **Project Settings ▸ Script properties ▸ Add** `GEMINI_API_KEY`.
+3. **EduAssist ▸ Test live model** — you should see a two-sentence TCP/UDP answer.
+4. Reload the site and ask anything. The answer meta line should read **live model · gemini-3.8-flash**.
+
+Notes:
+
+- Script-property changes take effect immediately; **no redeploy is required**.
+- Free tier is roughly 1,500 Flash requests/day. If you hit the cap, the app logs the failure and
+  silently falls back to the scripted answers, so the demo never breaks.
+- To pin a different model, add a script property `GEMINI_MODEL` (e.g. `gemini-3.7-flash`).
+- Free-tier prompts may be used by Google to improve products. That is disclosed in Blue Team mode;
+  the simulation only ever sends the question text, never form data.
 
 ---
 
@@ -178,8 +194,10 @@ dashboard** (it clears and regenerates the formulas).
 - **No authentication.** This is a demo; the sheet endpoint accepts anonymous writes by design
   so participants can submit from their own phones. If you run it with a real cohort, consider
   rate-limiting or a shared secret in the payload.
-- **Scripted "AI".** The helper returns hand-written teaching answers keyed by topic, not a live
-  model. Custom prompts get a generic answer skeleton — clearly labelled in the UI as scripted.
+- **Live model, with a fallback.** Answers come from `gemini-3.8-flash` through your Apps Script
+  proxy, so the API key stays server-side. If the key is missing, quota is exhausted or the
+  network fails, the helper silently falls back to hand-written teaching answers and labels the
+  response *scripted fallback*.
 
 ---
 
@@ -188,6 +206,8 @@ dashboard** (it clears and regenerates the formulas).
 | Symptom | Cause | Fix |
 |---|---|---|
 | Analytics shows *local log* even after submitting | URL empty or fetch blocked | Check `GOOGLE_SCRIPT_URL` ends in `/exec`; reload; open the drawer's **Refresh** |
+| Answers say *scripted fallback* | No `GEMINI_API_KEY`, wrong key, or quota exhausted | Run **EduAssist ▸ Test live model**; check the error text it prints |
+| `NO_API_KEY` in the Apps Script log | Property not saved on the deployment's project | Add `GEMINI_API_KEY` in **Project Settings ▸ Script properties** |
 | Rows never appear in the sheet | Deployment access not set to **Anyone** | Manage deployments → edit → *Who has access: Anyone* → new version → deploy |
 | `401` / "Script function not found" | You deployed the wrong project | Confirm the deployment points at the project containing `doPost` |
 | Sheet has data, app shows demo data | Local log empty **and** JSONP blocked | The drawer falls back to demo only when both sources fail; check the browser console |
