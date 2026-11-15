@@ -88,23 +88,21 @@ You can also use the VS Code "Live Server" extension — any static server works
 5. Copy the **Web app URL**. It ends in `/exec` and looks like:
    `https://script.google.com/macros/s/AKfycb.../exec`
 
-### 2.3 Paste the URL into the app
+### 2.3 The URL is already configured
 
-Open `app.js` and replace the empty constant near the top:
-
-```js
-const GOOGLE_SCRIPT_URL = ''; // <-- REPLACE AFTER DEPLOYING Code.gs
-```
-
-with your URL:
+`app.js` already points at the deployed Web App, so the sheet starts receiving rows as soon as the
+site is served over HTTP:
 
 ```js
 const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycb.../exec';
 ```
 
-Reload the page. The tabs `Raw_Responses` and `Summary_Dashboard` are created automatically the
-first time a row is written (or immediately from the **EduAssist** menu ▸ *Rebuild summary
-dashboard* after the sheet has been opened once with the script bound).
+If you redeploy to a **new** URL, replace that constant. Keep the endpoint treated as public:
+anyone with the link can append rows, which is required for anonymous participants.
+
+> **Re-deploying after edits:** Apps Script keeps serving the old code until you publish a new
+> version. Use **Deploy ▸ Manage deployments ▸ ✏️ ▸ Version: New version ▸ Deploy**, keeping the
+> same `/exec` URL.
 
 ### 2.4 Verify it works
 

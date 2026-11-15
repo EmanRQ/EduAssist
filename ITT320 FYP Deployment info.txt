@@ -1,0 +1,7 @@
+ITT320 FYP EduAssist
+
+Deployment ID
+AKfycbyNwKF_HQ5I_EEUDNySkgXejSSTrbvLfRJ1FJuoK4rlF4CYkw6MvCl65n4SKLD7X0s_
+
+Web App URL
+https://script.google.com/macros/s/AKfycbyNwKF_HQ5I_EEUDNySkgXejSSTrbvLfRJ1FJuoK4rlF4CYkw6MvCl65n4SKLD7X0s_/exec

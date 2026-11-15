@@ -28,12 +28,12 @@
 
 /**
  * Paste the deployed Google Apps Script Web App URL here, e.g.
- * "https://script.google.com/macros/s/AKfycb.../exec"
+ * "https://script.google.com/macros/s/AKfycbyNwKF_HQ5I_EEUDNySkgXejSSTrbvLfRJ1FJuoK4rlF4CYkw6MvCl65n4SKLD7X0s_/exec"
  *
  * While this is empty the app runs in local-only mode: rows are kept in
  * localStorage and the analytics drawer uses them (or demo data).
  */
-const GOOGLE_SCRIPT_URL = ''; // <-- REPLACE AFTER DEPLOYING Code.gs
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyNwKF_HQ5I_EEUDNySkgXejSSTrbvLfRJ1FJuoK4rlF4CYkw6MvCl65n4SKLD7X0s_/exec';
 
 const CONFIG = {
   endpointReady: /^https:\/\/script\.google\.com\//.test(GOOGLE_SCRIPT_URL),
