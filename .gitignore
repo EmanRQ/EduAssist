@@ -15,3 +15,7 @@ desktop.ini
 Temp/
 obj/
 Logs/
+
+# Local tooling artefacts
+.playwright-cli/
+node_modules/

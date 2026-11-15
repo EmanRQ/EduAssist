@@ -1,0 +1,413 @@
+/**
+ * ============================================================================
+ * EduAssist — Google Apps Script backend (Code.gs)
+ * ----------------------------------------------------------------------------
+ * Paste this whole file into the Apps Script editor attached to your Google
+ * Sheet (Extensions ▸ Apps Script), then deploy it as a Web App.
+ *
+ * What it does
+ *   1. Guarantees two tabs exist: Raw_Responses and Summary_Dashboard.
+ *   2. Appends every JSON payload the web app POSTs, in a fixed column order.
+ *   3. Builds a formula-driven Summary_Dashboard (COUNTIF / AVERAGE / COUNTA /
+ *      SUMPRODUCT) so an evaluator can inspect the numbers in the sheet itself.
+ *   4. Answers GET ?action=summary with JSON (plus JSONP support) so the
+ *      in-app "Live analytics" drawer can read the real totals.
+ *
+ * Expected payload keys (missing keys become blanks):
+ *   timestamp, session_id, event, mode, dummy_name, university,
+ *   student_id_provided, phone_provided, security_q_provided,
+ *   password_trap_triggered, time_taken_sec, fields_filled_count,
+ *   hesitation_clicks, awareness_score, user_verdict, prompt_category
+ *
+ * Nothing here ever receives a real password: app.js replaces the value with
+ * password_trap_triggered = "Yes"/"No" before sending.
+ * ============================================================================
+ */
+
+/** @const */
+const RAW_SHEET_NAME = 'Raw_Responses';
+/** @const */
+const SUMMARY_SHEET_NAME = 'Summary_Dashboard';
+
+/** Column order is the contract between app.js and the sheet. Do not reorder. */
+const HEADERS = [
+  'timestamp',
+  'session_id',
+  'event',
+  'mode',
+  'dummy_name',
+  'university',
+  'student_id_provided',
+  'phone_provided',
+  'security_q_provided',
+  'password_trap_triggered',
+  'time_taken_sec',
+  'fields_filled_count',
+  'hesitation_clicks',
+  'awareness_score',
+  'user_verdict',
+  'prompt_category',
+];
+
+/* ============================================================================
+ * HTTP entry points
+ * ========================================================================== */
+
+/**
+ * Receives one interaction from the web app.
+ * The client posts text/plain to avoid a CORS preflight, so the body arrives
+ * as a JSON string in e.postData.contents.
+ */
+function doPost(e) {
+  const lock = LockService.getScriptLock();
+  try {
+    lock.waitLock(20000);
+
+    const payload = parsePayload_(e);
+    if (!payload || !Object.keys(payload).length) {
+      return respond_({ ok: false, error: 'Empty payload' }, e);
+    }
+
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const raw = ensureRawSheet_(ss);
+    appendPayload_(raw, payload);
+    ensureSummarySheet_(ss);
+
+    return respond_({ ok: true, row: Math.max(1, raw.getLastRow() - 1) }, e);
+  } catch (error) {
+    return respond_({ ok: false, error: String(error) }, e);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * Health check + live summary for the analytics drawer.
+ * Call with ?action=summary — add &callback=fn for JSONP.
+ */
+function doGet(e) {
+  const params = (e && e.parameter) || {};
+
+  if (params.action === 'summary') {
+    try {
+      const summary = buildSummary_();
+      return respond_(summary, e);
+    } catch (error) {
+      return respond_({ ok: false, error: String(error) }, e);
+    }
+  }
+
+  return respond_({
+    ok: true,
+    service: 'EduAssist logging endpoint',
+    usage: 'POST JSON rows here; GET ?action=summary for metrics.',
+    time: new Date().toISOString(),
+  }, e);
+}
+
+/* ============================================================================
+ * Sheet management
+ * ========================================================================== */
+
+function ensureRawSheet_(ss) {
+  let sheet = ss.getSheetByName(RAW_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(RAW_SHEET_NAME);
+  }
+
+  const firstRow = sheet.getRange(1, 1, 1, HEADERS.length).getValues()[0];
+  const needsHeader = HEADERS.some((header, index) => String(firstRow[index] || '') !== header);
+
+  if (needsHeader) {
+    sheet.getRange(1, 1, 1, HEADERS.length).setValues([HEADERS]);
+    sheet.getRange(1, 1, 1, HEADERS.length)
+      .setFontWeight('bold')
+      .setBackground('#111827')
+      .setFontColor('#f9fafb');
+    sheet.setFrozenRows(1);
+    sheet.getRange(1, 1, sheet.getMaxRows(), HEADERS.length).setNumberFormat('@'); // keep IDs as text
+    sheet.setColumnWidth(1, 180);
+    sheet.setColumnWidth(2, 150);
+    sheet.setColumnWidth(5, 150);
+    sheet.setColumnWidth(6, 190);
+    sheet.setColumnWidth(15, 190);
+  }
+
+  return sheet;
+}
+
+/** Appends one payload, sanitising formula injection and trimming length. */
+function appendPayload_(sheet, payload) {
+  const row = HEADERS.map((header) => cleanCell_(payload[header]));
+  sheet.appendRow(row);
+}
+
+/**
+ * Creates or repairs the Summary_Dashboard.
+ * Cells are addressed by fixed row numbers so the formulas stay readable.
+ */
+function ensureSummarySheet_(ss) {
+  let sheet = ss.getSheetByName(SUMMARY_SHEET_NAME);
+  if (!sheet) {
+    sheet = ss.insertSheet(SUMMARY_SHEET_NAME);
+  }
+
+  // Cheap check: if the title is there, assume the block is intact.
+  if (String(sheet.getRange('A1').getValue() || '').indexOf('EduAssist') !== -1) {
+    return sheet;
+  }
+
+  sheet.clear();
+  sheet.setHiddenGridlines(false);
+
+  const raw = `'${RAW_SHEET_NAME}'`;
+
+  sheet.getRange('A1').setValue('EduAssist — Simulation Summary Dashboard')
+    .setFontSize(16).setFontWeight('bold');
+  sheet.getRange('A2').setValue('Auto-generated from Raw_Responses. Rebuild via the EduAssist menu if rows look stale.')
+    .setFontColor('#6b7280').setFontSize(10);
+
+  sheet.getRange('A4:C4').setValues([['Metric', 'Value', 'Notes']])
+    .setFontWeight('bold').setBackground('#e5e7eb');
+
+  const metrics = [
+    ['Total logged interactions', `=COUNTA(${raw}!A2:A)`, 'Every row, including switches'],
+    ['Red Team submissions', `=COUNTIF(${raw}!C2:C,"red_submit")`, 'Completed the lure'],
+    ['Blue Team awareness checks', `=COUNTIF(${raw}!C2:C,"blue_check")`, 'Completed the quiz'],
+    ['Mode switches', `=COUNTIF(${raw}!C2:C,"mode_switch")`, 'Red ↔ Blue toggles'],
+    ['Unique participants', `=IFERROR(COUNTA(UNIQUE(FILTER(${raw}!B2:B,${raw}!B2:B<>""))),0)`, 'Distinct session IDs'],
+  ];
+  sheet.getRange(5, 1, metrics.length, 3).setValues(metrics);
+
+  sheet.getRange('A11:C11').setValues([['Exposure breakdown', 'Given (count)', 'Share of Red submissions']])
+    .setFontWeight('bold').setBackground('#fee2e2');
+
+  const exposure = [
+    ['Student ID provided', `=COUNTIF(${raw}!G2:G,"Yes")`, '=IFERROR(B13/B$6,0)'],
+    ['Phone number provided', `=COUNTIF(${raw}!H2:H,"Yes")`, '=IFERROR(B14/B$6,0)'],
+    ['Security question provided', `=COUNTIF(${raw}!I2:I,"Yes")`, '=IFERROR(B15/B$6,0)'],
+    ['PIN / password trap triggered', `=COUNTIF(${raw}!J2:J,"Yes")`, '=IFERROR(B16/B$6,0)'],
+  ];
+  sheet.getRange(13, 1, exposure.length, 3).setValues(exposure);
+
+  const outcomes = [
+    ['Data exposure rate (any sensitive field)', `=IFERROR(SUMPRODUCT((${raw}!C2:C1000="red_submit")*(((${raw}!G2:G1000="Yes")+(${raw}!H2:H1000="Yes")+(${raw}!I2:I1000="Yes")+(${raw}!J2:J1000="Yes"))>0))/MAX(1,B6),0)`, 'Share of Red submissions that gave ≥1 field'],
+    ['Most compromised field', '=IF(MAX(B13:B16)=0,"None yet",INDEX(A13:A16,MATCH(MAX(B13:B16),B13:B16,0)))', 'Highest count above'],
+    ['Average awareness score', `=IFERROR(AVERAGEIF(${raw}!C2:C,"blue_check",${raw}!N2:N),"")`, 'Out of 100'],
+    ['Average time to submit (seconds)', `=IFERROR(AVERAGEIF(${raw}!C2:C,"red_submit",${raw}!K2:K),"")`, 'From first interaction'],
+    ['Average hesitation clicks', `=IFERROR(AVERAGEIF(${raw}!C2:C,"red_submit",${raw}!M2:M),"")`, '“Why is this needed?” + lock clicks'],
+    ['Most recent verdict', `=IFERROR(INDEX(${raw}!O2:O1000,COUNTA(${raw}!O2:O1000)),"")`, 'Last non-empty user_verdict'],
+  ];
+  sheet.getRange(18, 1, outcomes.length, 3).setValues(outcomes);
+
+  // Percent formats
+  sheet.getRange('C13:C16').setNumberFormat('0.0%');
+  sheet.getRange('B18').setNumberFormat('0.0%');
+  sheet.getRange('B20').setNumberFormat('0');
+  sheet.getRange('B21:B22').setNumberFormat('0.0');
+
+  // Readability
+  sheet.getRange('A4:C5').setBorder(true, true, true, true, true, true);
+  sheet.getRange('A13:C16').setBorder(true, true, true, true, true, true);
+  sheet.getRange('A18:C23').setBorder(true, true, true, true, true, true);
+  sheet.setColumnWidth(1, 300);
+  sheet.setColumnWidth(2, 140);
+  sheet.setColumnWidth(3, 360);
+  sheet.getRange('A4:C23').setVerticalAlignment('middle');
+
+  return sheet;
+}
+
+/* ============================================================================
+ * Summary computation (for doGet)
+ * ========================================================================== */
+
+function buildSummary_() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(RAW_SHEET_NAME);
+  if (!sheet || sheet.getLastRow() < 2) {
+    return { ok: true, metrics: emptyMetrics_(), recent: [] };
+  }
+
+  const values = sheet.getRange(2, 1, sheet.getLastRow() - 1, HEADERS.length).getValues();
+  const rows = values.map(function (rowValues) {
+    const row = {};
+    HEADERS.forEach(function (header, index) { row[header] = rowValues[index]; });
+    return row;
+  });
+
+  const red = rows.filter(function (row) { return row.event === 'red_submit'; });
+  const blue = rows.filter(function (row) { return row.event === 'blue_check'; });
+  const switches = rows.filter(function (row) { return row.event === 'mode_switch'; });
+
+  const sessions = {};
+  rows.forEach(function (row) { if (row.session_id) sessions[String(row.session_id)] = true; });
+
+  const fieldKeys = ['student_id_provided', 'phone_provided', 'security_q_provided', 'password_trap_triggered'];
+  const fieldLabels = ['Student ID', 'Phone number', 'Security question', 'PIN / password'];
+  const counts = fieldKeys.map(function (key) {
+    return red.filter(function (row) { return row[key] === 'Yes'; }).length;
+  });
+
+  const exposed = red.filter(function (row) {
+    return fieldKeys.some(function (key) { return row[key] === 'Yes'; });
+  }).length;
+
+  const awareness = blue
+    .map(function (row) { return Number(row.awareness_score); })
+    .filter(function (value) { return isFinite(value); });
+
+  let topIndex = 0;
+  counts.forEach(function (count, index) { if (count > counts[topIndex]) topIndex = index; });
+
+  const metrics = {
+    participants: Object.keys(sessions).length,
+    redSubmits: red.length,
+    blueChecks: blue.length,
+    modeSwitches: switches.length,
+    exposureRate: red.length ? Math.round((exposed / red.length) * 100) : 0,
+    mostCompromised: counts[topIndex] > 0 ? fieldLabels[topIndex] : 'None yet',
+    awarenessAvg: awareness.length
+      ? Math.round(awareness.reduce(function (sum, value) { return sum + value; }, 0) / awareness.length)
+      : null,
+  };
+
+  const recent = rows.slice(-6).reverse().map(function (row) {
+    return {
+      timestamp: row.timestamp instanceof Date ? row.timestamp.toISOString() : String(row.timestamp || ''),
+      event: String(row.event || ''),
+      mode: String(row.mode || ''),
+      dummy_name: String(row.dummy_name || ''),
+      user_verdict: String(row.user_verdict || ''),
+      awareness_score: row.awareness_score === '' ? '' : Number(row.awareness_score),
+    };
+  });
+
+  return { ok: true, metrics: metrics, recent: recent, generatedAt: new Date().toISOString() };
+}
+
+function emptyMetrics_() {
+  return {
+    participants: 0, redSubmits: 0, blueChecks: 0, modeSwitches: 0,
+    exposureRate: 0, mostCompromised: 'None yet', awarenessAvg: null,
+  };
+}
+
+/* ============================================================================
+ * Helpers
+ * ========================================================================== */
+
+function parsePayload_(e) {
+  if (!e || !e.postData) return null;
+
+  const raw = e.postData.contents || '';
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    // Fallback for a form-encoded post (not used by EduAssist, kept for manual tests)
+    const parsed = {};
+    raw.split('&').forEach(function (pair) {
+      const parts = pair.split('=');
+      if (parts.length === 2) parsed[decodeURIComponent(parts[0])] = decodeURIComponent(parts[1].replace(/\+/g, ' '));
+    });
+    return parsed;
+  }
+}
+
+/**
+ * Cleans a value before it lands in a cell:
+ *  - objects/arrays become compact JSON
+ *  - leading =, +, -, @ are neutralised so a dummy name cannot inject a formula
+ *  - whitespace trimmed, length capped
+ */
+function cleanCell_(value) {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') return JSON.stringify(value).slice(0, 500);
+
+  let text = String(value).trim();
+  if (!text) return '';
+  if (/^[=+\-@]/.test(text)) text = "'" + text;
+  return text.slice(0, 500);
+}
+
+/**
+ * Sends JSON normally, or JSONP when ?callback= is present.
+ * JSONP is the reliable path for static sites calling Apps Script from another
+ * origin, because Apps Script GET responses carry no CORS headers.
+ */
+function respond_(data, e) {
+  const callback = e && e.parameter && e.parameter.callback;
+
+  if (callback && /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(callback)) {
+    return ContentService
+      .createTextOutput(callback + '(' + JSON.stringify(data) + ');')
+      .setMimeType(ContentService.MimeType.JAVASCRIPT);
+  }
+
+  return ContentService
+    .createTextOutput(JSON.stringify(data))
+    .setMimeType(ContentService.MimeType.JSON);
+}
+
+/* ============================================================================
+ * Menu (only when bound to a spreadsheet)
+ * ========================================================================== */
+
+function onOpen() {
+  try {
+    SpreadsheetApp.getUi()
+      .createMenu('EduAssist')
+      .addItem('Rebuild summary dashboard', 'rebuildSummaryDashboard')
+      .addItem('Send a test row', 'sendTestRow')
+      .addItem('Check setup', 'checkSetup')
+      .addToUi();
+  } catch (error) {
+    // Standalone script project — no menu available.
+  }
+}
+
+function rebuildSummaryDashboard() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const sheet = ss.getSheetByName(SUMMARY_SHEET_NAME);
+  if (sheet) sheet.clear();
+  ensureSummarySheet_(ss);
+  SpreadsheetApp.getActive().toast('Summary dashboard rebuilt.', 'EduAssist', 5);
+}
+
+function sendTestRow() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const raw = ensureRawSheet_(ss);
+  appendPayload_(raw, {
+    timestamp: new Date().toISOString(),
+    session_id: 'manual-test-' + new Date().getTime(),
+    event: 'red_submit',
+    mode: 'Red_Team',
+    dummy_name: 'Test Student',
+    university: 'Example University',
+    student_id_provided: 'Yes',
+    phone_provided: 'Yes',
+    security_q_provided: 'No',
+    password_trap_triggered: 'Yes',
+    time_taken_sec: 45,
+    fields_filled_count: 6,
+    hesitation_clicks: 2,
+    awareness_score: '',
+    user_verdict: 'test row',
+    prompt_category: 'demo',
+  });
+  SpreadsheetApp.getActive().toast('Test row appended to Raw_Responses.', 'EduAssist', 5);
+}
+
+function checkSetup() {
+  const ss = SpreadsheetApp.getActiveSpreadsheet();
+  const raw = ss.getSheetByName(RAW_SHEET_NAME);
+  const lines = [
+    ss ? 'Spreadsheet: ' + ss.getName() : 'No bound spreadsheet (open the script from the sheet).',
+    raw ? RAW_SHEET_NAME + ': ' + Math.max(0, raw.getLastRow() - 1) + ' data rows.' : RAW_SHEET_NAME + ' missing — it will be created on the first POST.',
+    ss.getSheetByName(SUMMARY_SHEET_NAME) ? SUMMARY_SHEET_NAME + ': present.' : SUMMARY_SHEET_NAME + ': missing — will be created.',
+    'Deployment: Deploy ▸ Manage deployments must be a Web app, execute as Me, access Anyone.',
+  ];
+  SpreadsheetApp.getUi().alert('EduAssist setup\n\n' + lines.join('\n'));
+}

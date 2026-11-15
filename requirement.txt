@@ -1,0 +1,52 @@
+Act as an expert Full-Stack Web Developer and Cybersecurity Educator. I am building an educational cybersecurity simulation web application called **"EduAssist"** or rename later on to demonstrate a **Quid Pro Quo social engineering attack** targeting university students, alongside a **Blue Team defensive countermeasure** mode.
+
+Host this project on GitHub so build it using clean, production-ready **HTML5, Tailwind CSS (via CDN), and Vanilla JavaScript** (no complex backend servers required).
+
+### 1. CORE ARCHITECTURE & THEME TOGGLE (RED TEAM VS. BLUE TEAM)
+Include a prominent, interactive mode toggle switch in the top navigation bar:
+- **Red Hat / Attack Simulation Mode (Default):** Sleek **Dark Mode** (`#0a0a0f` background) with sharp **red neon/crimson border linings** (`#ef4444`), subtle cyber/urgent visual cues, and a "Simulation Active: Unverified AI Helper" badge.
+- **Blue Team / Defensive Mode:** Clean, **warm, welcoming light theme** (soft warm cream/ivory background `#faf8f5`, warm slate text, calming blue/emerald accents `#2563eb` / `#059669`) with trust badges, transparency indicators, and security education callouts.
+- Switching modes must dynamically update the UI theme, form fields, AI behavior, and display an interactive **"Red vs. Blue Comparison Banner"** explaining what changed between the two modes.
+
+### 2. ETHICAL & SCOPE SAFEGUARDS (MANDATORY)
+- Display a clear **Informed Consent Modal** on first load stating: *"Educational Security Simulation: This is a controlled academic simulation for university students. Do NOT enter real passwords, real IC/passport numbers, or sensitive personal data. Use dummy/fictional data only."* Users must click "I Understand & Consent (Use Dummy Data)" to proceed.
+- Never store or transmit actual passwords in plain text—if a password field is shown in Red Mode to test password-reuse awareness, immediately mask/hash or replace it with a boolean flag (`password_entered: true`, `length: X`) in JavaScript before sending to Google Sheets so no real secret ever leaves the browser.
+
+### 3. FUNCTIONAL FEATURES BY MODE
+
+#### A. Red Team Mode (The Quid Pro Quo Trap)
+1. **Attractive Lure ("Free AI Homework & Assignment Solver"):**
+   - Students can paste an assignment question or pick a sample university prompt (e.g., *"Summarize Porter's Five Forces for Business Strategy"* or *"Debug this Python sorting function"*).
+   - The AI gives a partial teaser answer, then locks the full solution behind a **"Free Student Verification"** gate (Quid Pro Quo: *"Get full assignment answers & lecture notes free by verifying your student profile"*).
+2. **Over-Reaching Data Collection Form (Simulated Exploitation):**
+   - Requests excessive, unnecessary personal info under the guise of academic verification:
+     - Dummy Full Name & University Name
+     - Student ID / Matric Number (Dummy)
+     - Personal Phone Number / WhatsApp (Dummy)
+     - Date of Birth & Security Question ("Mother's maiden name / First pet")
+     - "Create a quick PIN/Password" (captured ONLY as `entered: Yes/No` for safety)
+   - Track behavioral metrics silently: `time_to_submit_seconds`, `fields_filled_count`, and `hesitation_clicks`.
+3. **Post-Submit Reveal / Debriefing Screen:**
+   - Once submitted, immediately reveal a **"Simulated Attack Debrief"** showing the user exactly what data they just handed over, why each field is dangerous (e.g., identity theft, credential stuffing, spear-phishing), and a button to **"Switch to Blue Team Mode to see how a safe platform works."**
+
+#### B. Blue Team Mode (Defensive & Verified Standard)
+1. **Data Minimization & Transparency:**
+   - The AI Homework Helper works **without** demanding excessive personal data (only requires an optional anonymous nickname or generic session ID).
+   - Displays clear **Privacy & Authenticity Indicators**: Verified domain badge, clear Privacy Policy summary, "No Student ID or Phone Required" notice, and Red-Flag Checklist tooltips explaining how students can spot fake academic platforms.
+2. **Interactive "Spot the Red Flags" Mini-Check:**
+   - Allows participants to rate/answer 3 quick awareness questions (e.g., *"Did you notice why Red Mode asked for your phone number and security question?"*) so we can measure user awareness improvement.
+
+### 4. GOOGLE SHEETS INTEGRATION (DATA LOGGING & ANALYTICS)
+Connect the web app to **Google Sheets** using a **Google Apps Script Web App (`doPost`)** endpoint (`const GOOGLE_SCRIPT_URL = "YOUR_APPS_SCRIPT_URL_HERE"`):
+- Send a JSON payload via `fetch()` whenever a user completes Red Mode submission, Blue Mode awareness check, or switches modes.
+- Payload fields: `timestamp`, `session_id`, `mode` ("Red_Team" or "Blue_Team"), `dummy_name`, `university`, `student_id_provided` (Yes/No), `phone_provided` (Yes/No), `security_q_provided` (Yes/No), `password_trap_triggered` (Yes/No), `time_taken_sec`, `awareness_score`, and `user_verdict`.
+- Also include an **in-app "Live Simulation Analytics" modal/drawer** (reading from local session state or demo data) showing summary metrics (Total Participants, Data Exposure Rate %, Most Compromised Field, Blue Team Awareness Score) so evaluators can inspect results right on the site.
+
+### 5. DELIVERABLES NEEDED FROM YOU
+Please provide:
+1. Complete, well-commented code split cleanly into `index.html`, `style.css`, and `app.js` (ready to push to a GitHub repository).
+2. The exact **Google Apps Script (`Code.gs`)** code to paste into Google Sheets, including automatic creation of two tabs:
+   - **`Raw_Responses`** (logs every participant interaction with timestamps).
+   - **`Summary_Dashboard`** (automatically calculates total tests, % of students who gave away Student ID, Phone, Security Questions, Password Trap rate, and average awareness score using Google Sheets formulas like `COUNTIF`, `AVERAGE`, and `COUNTA`).
+3. Step-by-step deployment instructions for connecting Google Sheets and pushing to GitHub.
+I have my own website where i will host this web but that my end. focus the github repo and setting up google sheet
