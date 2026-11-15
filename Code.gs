@@ -320,8 +320,14 @@ function appendPayload_(sheet, payload) {
 }
 
 /**
- * Creates or repairs the Summary_Dashboard.
- * Cells are addressed by fixed row numbers so the formulas stay readable.
+ * Creates or repairs Summary_Dashboard.
+ *
+ * Deliberately non-technical: it answers one question — what private data did
+ * students hand over, and did the Blue Team lesson change anything? All the
+ * engineering counters (mode switches, timings, hesitation) stay out of here;
+ * they live in Raw_Responses for anyone who wants them.
+ *
+ * Guarded by a layout marker in A2 so an older dashboard is rebuilt once.
  */
 function ensureSummarySheet_(ss) {
   let sheet = ss.getSheetByName(SUMMARY_SHEET_NAME);
@@ -329,67 +335,108 @@ function ensureSummarySheet_(ss) {
     sheet = ss.insertSheet(SUMMARY_SHEET_NAME);
   }
 
-  // Cheap check: if the title is there, assume the block is intact.
-  if (String(sheet.getRange('A1').getValue() || '').indexOf('EduAssist') !== -1) {
+  if (String(sheet.getRange('A2').getValue() || '').indexOf('Layout v2') !== -1) {
     return sheet;
   }
 
   sheet.clear();
-  sheet.setHiddenGridlines(false);
+  sheet.getRange('A1:C30').breakApart();
+  sheet.clearFormats();
+  sheet.setHiddenGridlines(true);
+  sheet.setTabColor('#ef4444');
 
   const raw = `'${RAW_SHEET_NAME}'`;
 
-  sheet.getRange('A1').setValue('EduAssist — Simulation Summary Dashboard')
-    .setFontSize(16).setFontWeight('bold');
-  sheet.getRange('A2').setValue('Auto-generated from Raw_Responses. Rebuild via the EduAssist menu if rows look stale.')
-    .setFontColor('#6b7280').setFontSize(10);
+  // Build the "gave at least one private detail" expression with balanced
+  // parentheses instead of hand-counting a long one-liner.
+  const gaveId = `(${raw}!G2:G1000="Yes")`;
+  const gavePhone = `(${raw}!H2:H1000="Yes")`;
+  const gaveSecurity = `(${raw}!I2:I1000="Yes")`;
+  const gavePin = `(${raw}!J2:J1000="Yes")`;
+  const gaveAnything = `((${gaveId}+${gavePhone}+${gaveSecurity}+${gavePin})>0)`;
+  const trapRows = `(${raw}!C2:C1000="red_submit")`;
 
-  sheet.getRange('A4:C4').setValues([['Metric', 'Value', 'Notes']])
-    .setFontWeight('bold').setBackground('#e5e7eb');
+  // Title
+  sheet.getRange('A1:C1').merge();
+  sheet.getRange('A1')
+    .setValue('EduAssist — What Students Handed Over')
+    .setFontSize(18).setFontWeight('bold').setFontColor('#111827');
+  sheet.getRange('A2:C2').merge();
+  sheet.getRange('A2')
+    .setValue('Simulated quid pro quo exercise · fills in automatically · Layout v2')
+    .setFontSize(10).setFontColor('#6b7280');
 
-  const metrics = [
-    ['Total logged interactions', `=COUNTA(${raw}!A2:A)`, 'Every row, including switches'],
-    ['Red Team submissions', `=COUNTIF(${raw}!C2:C,"red_submit")`, 'Completed the lure'],
-    ['Blue Team awareness checks', `=COUNTIF(${raw}!C2:C,"blue_check")`, 'Completed the quiz'],
-    ['Mode switches', `=COUNTIF(${raw}!C2:C,"mode_switch")`, 'Red ↔ Blue toggles'],
-    ['Unique participants', `=IFERROR(COUNTA(UNIQUE(FILTER(${raw}!B2:B,(${raw}!C2:C="red_submit")+(${raw}!C2:C="blue_check")))),0)`, 'Sessions that submitted or took the quiz'],
-  ];
-  sheet.getRange(5, 1, metrics.length, 3).setValues(metrics);
+  const section = function (row, text) {
+    sheet.getRange(row, 1, 1, 3).merge();
+    sheet.getRange(row, 1).setValue(text)
+      .setFontWeight('bold').setFontSize(11)
+      .setBackground('#111827').setFontColor('#f9fafb');
+  };
 
-  sheet.getRange('A11:C11').setValues([['Exposure breakdown', 'Given (count)', 'Share of Red submissions']])
-    .setFontWeight('bold').setBackground('#fee2e2');
+  // ---- The result -----------------------------------------------------
+  section(4, 'THE RESULT');
 
-  const exposure = [
-    ['Student ID provided', `=COUNTIF(${raw}!G2:G,"Yes")`, '=IFERROR(B13/B$6,0)'],
-    ['Phone number provided', `=COUNTIF(${raw}!H2:H,"Yes")`, '=IFERROR(B14/B$6,0)'],
-    ['Security question provided', `=COUNTIF(${raw}!I2:I,"Yes")`, '=IFERROR(B15/B$6,0)'],
-    ['PIN / password trap triggered', `=COUNTIF(${raw}!J2:J,"Yes")`, '=IFERROR(B16/B$6,0)'],
-  ];
-  sheet.getRange(13, 1, exposure.length, 3).setValues(exposure);
+  sheet.getRange('A5:B8').setValues([
+    ['Students who tried the free-answer trap', `=COUNTIF(${raw}!C2:C,"red_submit")`],
+    ['Students who handed over private data', `=IFERROR(SUMPRODUCT(${trapRows}*${gaveAnything}),0)`],
+    ['Share who gave something away', '=IFERROR(B6/B5,0)'],
+    ['Most-handed-over detail', '=IF(MAX(B12:B15)=0,"None yet",INDEX(A12:A15,MATCH(MAX(B12:B15),B12:B15,0)))'],
+  ]);
 
-  const outcomes = [
-    ['Data exposure rate (any sensitive field)', `=IFERROR(SUMPRODUCT((${raw}!C2:C1000="red_submit")*(((${raw}!G2:G1000="Yes")+(${raw}!H2:H1000="Yes")+(${raw}!I2:I1000="Yes")+(${raw}!J2:J1000="Yes"))>0))/MAX(1,B6),0)`, 'Share of Red submissions that gave ≥1 field'],
-    ['Most compromised field', '=IF(MAX(B13:B16)=0,"None yet",INDEX(A13:A16,MATCH(MAX(B13:B16),B13:B16,0)))', 'Highest count above'],
-    ['Average awareness score', `=IFERROR(AVERAGEIF(${raw}!C2:C,"blue_check",${raw}!N2:N),"")`, 'Out of 100'],
-    ['Average time to submit (seconds)', `=IFERROR(AVERAGEIF(${raw}!C2:C,"red_submit",${raw}!K2:K),"")`, 'From first interaction'],
-    ['Average hesitation clicks', `=IFERROR(AVERAGEIF(${raw}!C2:C,"red_submit",${raw}!M2:M),"")`, '“Why is this needed?” + lock clicks'],
-    ['Most recent verdict', `=IFERROR(INDEX(${raw}!O2:O1000,COUNTA(${raw}!O2:O1000)),"")`, 'Last non-empty user_verdict'],
-  ];
-  sheet.getRange(18, 1, outcomes.length, 3).setValues(outcomes);
+  sheet.getRange('A5:A8').setFontSize(11).setFontColor('#374151');
+  sheet.getRange('B5:B8').setFontSize(14).setFontWeight('bold').setFontColor('#111827');
+  sheet.getRange('B5:B6').setNumberFormat('0');
+  sheet.getRange('B7').setNumberFormat('0%');
+  sheet.getRange('A5:B8').setBorder(true, true, true, true, true, true);
 
-  // Percent formats
-  sheet.getRange('C13:C16').setNumberFormat('0.0%');
-  sheet.getRange('B18').setNumberFormat('0.0%');
-  sheet.getRange('B20').setNumberFormat('0');
-  sheet.getRange('B21:B22').setNumberFormat('0.0');
+  // ---- Which private details -----------------------------------------
+  section(10, 'WHICH PRIVATE DETAILS DID THEY GIVE?');
 
-  // Readability
-  sheet.getRange('A4:C5').setBorder(true, true, true, true, true, true);
-  sheet.getRange('A13:C16').setBorder(true, true, true, true, true, true);
-  sheet.getRange('A18:C23').setBorder(true, true, true, true, true, true);
-  sheet.setColumnWidth(1, 300);
-  sheet.setColumnWidth(2, 140);
-  sheet.setColumnWidth(3, 360);
+  sheet.getRange('A11:C11').setValues([['Private detail', 'Students', 'Share of students']])
+    .setFontWeight('bold').setBackground('#fee2e2').setFontColor('#7f1d1d');
+
+  sheet.getRange('A12:C15').setValues([
+    ['Student ID / matric number', `=COUNTIF(${raw}!G2:G,"Yes")`, '=IFERROR(B12/$B$5,0)'],
+    ['Phone / WhatsApp number', `=COUNTIF(${raw}!H2:H,"Yes")`, '=IFERROR(B13/$B$5,0)'],
+    ['Security question answer', `=COUNTIF(${raw}!I2:I,"Yes")`, '=IFERROR(B14/$B$5,0)'],
+    ['PIN / password', `=COUNTIF(${raw}!J2:J,"Yes")`, '=IFERROR(B15/$B$5,0)'],
+  ]);
+
+  sheet.getRange('B12:C15').setHorizontalAlignment('left');
+  sheet.getRange('C12:C15').setNumberFormat('0%');
+  sheet.getRange('A11:C15').setBorder(true, true, true, true, true, true);
+
+  // ---- Blue Team outcome ---------------------------------------------
+  section(17, 'DID THE BLUE TEAM LESSON LAND?');
+
+  sheet.getRange('A18:B20').setValues([
+    ['Students who took the awareness check', `=COUNTIF(${raw}!C2:C,"blue_check")`],
+    ['Average awareness score (out of 100)', `=IFERROR(AVERAGEIF(${raw}!C2:C,"blue_check",${raw}!N2:N),"")`],
+    ['Students scoring 80 or higher', `=COUNTIFS(${raw}!C2:C,"blue_check",${raw}!N2:N,">=80")`],
+  ]);
+
+  sheet.getRange('A18:A20').setFontSize(11).setFontColor('#374151');
+  sheet.getRange('B18:B20').setFontSize(13).setFontWeight('bold').setFontColor('#111827');
+  sheet.getRange('B18:B20').setNumberFormat('0');
+  sheet.getRange('A18:B20').setBorder(true, true, true, true, true, true);
+
+  // ---- Plain-language readout ----------------------------------------
+  section(22, 'READ IT LIKE THIS');
+  sheet.getRange('A23:C23').merge();
+  sheet.getRange('A23').setFormula(
+    '=IF(B5=0,' +
+      '"No submissions yet — switch to Red Team mode and complete the form to fill this in.",' +
+      '"In total, "&B6&" of "&B5&" students ("&TEXT(B7,"0%")&") traded at least one private detail for an answer that never arrived. ' +
+      'The most common giveaway was "&LOWER(B8)&"."' +
+    ')'
+  );
+  sheet.getRange('A23').setWrap(true).setVerticalAlignment('top')
+    .setFontSize(11).setFontColor('#111827').setBackground('#f9fafb');
+  sheet.setRowHeight(23, 54);
+
+  sheet.setColumnWidth(1, 380);
+  sheet.setColumnWidth(2, 150);
+  sheet.setColumnWidth(3, 160);
   sheet.getRange('A4:C23').setVerticalAlignment('middle');
 
   return sheet;

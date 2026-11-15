@@ -1285,7 +1285,7 @@ function renderMetrics(metrics, source) {
   grid.appendChild(metricCard('Data exposure rate', metrics.exposureRate + '%', 'red submissions with ≥1 sensitive field'));
   grid.appendChild(metricCard('Most compromised field', metrics.mostCompromised, 'across red submissions'));
   grid.appendChild(metricCard('Blue Team awareness', metrics.awarenessAvg === null ? '—' : metrics.awarenessAvg + '/100', 'average awareness score'));
-  grid.appendChild(metricCard('Red / Blue events', metrics.redSubmits + ' / ' + metrics.blueChecks, metrics.modeSwitches + ' mode switches', true));
+  grid.appendChild(metricCard('Tried the trap / took the quiz', metrics.redSubmits + ' / ' + metrics.blueChecks, 'students who completed each part', true));
 
   const recent = $('#recentList');
   recent.replaceChildren();

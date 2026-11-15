@@ -172,16 +172,22 @@ Every row in `Raw_Responses` uses this fixed column order (defined in `HEADERS` 
 
 ### Summary_Dashboard
 
-Auto-built with live formulas, not static numbers:
+Plain-language, non-technical, and built with live formulas — it answers *what private data did
+students give away?*:
 
-- Total interactions, Red submissions, Blue checks, mode switches, unique participants.
-- Per-field counts (`COUNTIF`) and share of Red submissions.
-- Data exposure rate (`SUMPRODUCT` over the four sensitive flags).
-- Most compromised field (`INDEX` + `MATCH` over the highest count).
-- Average awareness score, average time to submit, average hesitation clicks (`AVERAGEIF`).
+- **The result** — students who tried the trap, how many handed over private data, the share who
+  gave something away, and the most-handed-over detail.
+- **Which private details** — Student ID, phone, security answer and PIN, each as a count plus a
+  share of everyone who tried the trap.
+- **Did the lesson land** — how many took the awareness check, the average score, and how many
+  scored 80+.
+- **Read it like this** — one sentence that writes itself from the numbers.
 
-If the dashboard ever looks stale after manual sheet edits, run **EduAssist ▸ Rebuild summary
-dashboard** (it clears and regenerates the formulas).
+Technical counters (timings, hesitation clicks, mode switches, per-event rows) stay in
+`Raw_Responses` for anyone who wants them.
+
+Run **EduAssist ▸ Rebuild summary dashboard** once after updating `Code.gs` — the dashboard is
+rebuilt whenever its layout marker changes.
 
 ---
 
