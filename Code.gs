@@ -303,6 +303,51 @@ function getGeminiModel_() {
 }
 
 /**
+ * Probes a few Gemini models and pins the first one that answers.
+ * Run once from the editor; the deployment picks up the property immediately.
+ */
+function probeModels() {
+  const props = PropertiesService.getScriptProperties();
+  const apiKey = props.getProperty('GEMINI_API_KEY');
+  if (!apiKey) return 'NO_API_KEY';
+
+  const candidates = ['gemini-2.5-flash', 'gemini-2.0-flash', 'gemini-3.7-flash', 'gemini-3.8-flash'];
+  const lines = [];
+
+  for (let i = 0; i < candidates.length; i += 1) {
+    const model = candidates[i];
+    try {
+      const res = UrlFetchApp.fetch(
+        GEMINI_BASE + encodeURIComponent(model) + ':generateContent?key=' + encodeURIComponent(apiKey),
+        {
+          method: 'post',
+          contentType: 'application/json',
+          payload: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: 'Reply with the single word OK.' }] }],
+            generationConfig: { maxOutputTokens: 8, temperature: 0 },
+          }),
+          muteHttpExceptions: true,
+        }
+      );
+      const code = res.getResponseCode();
+      const short = res.getContentText().replace(/\s+/g, ' ').slice(0, 140);
+      lines.push(model + ' -> ' + code + ' ' + short);
+      if (code === 200) {
+        props.setProperty('GEMINI_MODEL', model);
+        lines.push('PINNED: ' + model);
+        Logger.log(lines.join('\n'));
+        return lines.join('\n');
+      }
+    } catch (error) {
+      lines.push(model + ' -> THREW ' + error);
+    }
+  }
+
+  Logger.log(lines.join('\n'));
+  return lines.join('\n');
+}
+
+/**
  * One-off helper: pins a fallback model in Script Properties.
  * Property changes apply immediately — no redeploy required.
  */
