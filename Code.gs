@@ -302,6 +302,32 @@ function getGeminiModel_() {
   return PropertiesService.getScriptProperties().getProperty('GEMINI_MODEL') || DEFAULT_GEMINI_MODEL;
 }
 
+/**
+ * One-off helper: pins a fallback model in Script Properties.
+ * Property changes apply immediately — no redeploy required.
+ */
+function useBackupModel() {
+  const model = 'gemini-2.5-flash';
+  PropertiesService.getScriptProperties().setProperty('GEMINI_MODEL', model);
+  Logger.log('GEMINI_MODEL is now ' + getGeminiModel_());
+  return getGeminiModel_();
+}
+
+/**
+ * IDE-friendly probe. No SpreadsheetApp.getUi() here, so it can be run from the
+ * Apps Script editor — which is also how the script gets the
+ * script.external_request scope granted on first use.
+ */
+function testLiveModel() {
+  const result = handleAsk_(
+    { prompt: 'Explain TCP versus UDP in two sentences.', mode: 'Blue_Team' },
+    { parameter: {} }
+  );
+  const body = result.getContent();
+  Logger.log(body);
+  return body;
+}
+
 /** Menu helper: proves the key + model work without opening the site. */
 function testGemini() {
   const ui = SpreadsheetApp.getUi();

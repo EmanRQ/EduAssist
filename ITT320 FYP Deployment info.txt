@@ -1,7 +1,18 @@
 ITT320 FYP EduAssist
 
+Google Sheet
+https://docs.google.com/spreadsheets/d/1z7mw4EX7Zem2nZQ0OlDFGhC03IeNhk51bBjxT6T7GhQ/edit
+
 Deployment ID
-AKfycbyNwKF_HQ5I_EEUDNySkgXejSSTrbvLfRJ1FJuoK4rlF4CYkw6MvCl65n4SKLD7X0s_
+AKfycbzmSji_e3TlxBLSNoFPGsC5uAv6rpnVoFQ_4sZF_ZPSfA49hR3jQD1rJl5DdaIMD6JU
 
 Web App URL
-https://script.google.com/macros/s/AKfycbyNwKF_HQ5I_EEUDNySkgXejSSTrbvLfRJ1FJuoK4rlF4CYkw6MvCl65n4SKLD7X0s_/exec
+https://script.google.com/macros/s/AKfycbzmSji_e3TlxBLSNoFPGsC5uAv6rpnVoFQ_4sZF_ZPSfA49hR3jQD1rJl5DdaIMD6JU/exec
+
+Deployed code version
+v3-profiles (Version 6, 16 Nov 2026 09:37)
+
+Tabs
+Raw_Responses      - every interaction (flags + dummy values)
+Summary_Dashboard  - plain-language totals: what private data was given
+Captured_Profiles  - one row per student: name, ID, phone, DOB, security answer, risk level
