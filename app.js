@@ -502,6 +502,13 @@ function unlockPageScroll() {
   // layout forces a reflow so the document is scrollable again right away.
   void document.documentElement.offsetHeight;
   void document.body.offsetHeight;
+  // Last resort: if the page is taller than the viewport but something still
+  // reports a hidden overflow, put scrolling back explicitly.
+  const doc = document.documentElement;
+  if (doc.scrollHeight > doc.clientHeight + 4) {
+    if (getComputedStyle(doc).overflow === 'hidden') doc.style.overflow = 'auto';
+    if (getComputedStyle(document.body).overflow === 'hidden') document.body.style.overflow = 'auto';
+  }
 }
 
 function showConsent() {
