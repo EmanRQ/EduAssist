@@ -481,16 +481,38 @@ function consentAlreadyGiven() {
   try { return sessionStorage.getItem(CONFIG.keys.consent) === 'accepted'; } catch { return false; }
 }
 
+/*
+ * The consent gate locks the page while it is open. Two rules:
+ *
+ *  - lock <html> as well as <body>: some mobile browsers ignore a body-only
+ *    lock, and the dialog then scrolls the page behind it;
+ *  - release through one function only, called from every exit path. A lock
+ *    that is only partly released is what leaves the page unable to scroll
+ *    after the dialog closes (the reported "cannot scroll up nor down").
+ */
+function lockPageScroll() {
+  document.documentElement.style.overflow = 'hidden';
+  document.body.style.overflow = 'hidden';
+}
+
+function unlockPageScroll() {
+  document.documentElement.style.removeProperty('overflow');
+  document.body.style.removeProperty('overflow');
+  // iOS Safari can keep the scroller frozen after an overflow lock. Reading
+  // layout forces a reflow so the document is scrollable again right away.
+  void document.documentElement.offsetHeight;
+  void document.body.offsetHeight;
+}
+
 function showConsent() {
   $('#consentOverlay').hidden = false;
-  document.body.style.overflow = 'hidden';
-  const btn = $('#consentAccept');
-  btn.focus();
+  lockPageScroll();
+  $('#consentAccept').focus();
 }
 
 function hideConsent() {
   $('#consentOverlay').hidden = true;
-  document.body.style.overflow = '';
+  unlockPageScroll();
 }
 
 function wireConsent() {
@@ -506,8 +528,15 @@ function wireConsent() {
     showConsent();
   });
 
-  // Keyboard trap: keep focus inside the dialog while it is open.
+  // Keyboard trap: keep focus inside the dialog while it is open. Escape
+  // closes a review of the notice (consent already given) so the reopened
+  // dialog can never become a dead end.
   $('#consentOverlay').addEventListener('keydown', (event) => {
+    if (event.key === 'Escape' && state.consented) {
+      event.preventDefault();
+      hideConsent();
+      return;
+    }
     if (event.key !== 'Tab') return;
     const focusables = $$('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])', $('#consentOverlay'))
       .filter((node) => !node.disabled && node.offsetParent !== null);
@@ -1416,6 +1445,17 @@ function init() {
   state.consented = consentAlreadyGiven();
   if (state.consented) hideConsent();
   else showConsent();
+
+  // A restored page (back/forward cache) or a tab that comes back from the
+  // background must never stay scroll-locked.
+  const releaseIfConsentClosed = () => {
+    const overlay = $('#consentOverlay');
+    if (!overlay || overlay.hidden) unlockPageScroll();
+  };
+  window.addEventListener('pageshow', releaseIfConsentClosed);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') releaseIfConsentClosed();
+  });
 
   window.addEventListener('online', flushPending);
   flushPending();
