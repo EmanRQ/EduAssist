@@ -19,3 +19,8 @@ Logs/
 # Local tooling artefacts
 .playwright-cli/
 node_modules/
+
+# Kept on this laptop only - removed from the GitHub repo
+_local-only/
+/requirement.txt
+/ITT320 FYP Deployment info.txt

@@ -1,270 +1,45 @@
 # EduAssist
 
-An educational **Quid Pro Quo social engineering simulation** for university students, built as a
-single-page web app with a **Red Team (attack) mode** and a **Blue Team (defence) mode**.
+A small teaching app for a university security tutorial. It shows a *quid pro quo* social
+engineering attack and then the defensive counterpart, in one page.
 
-> **Academic simulation only.** The Red Team mode imitates a malicious "free AI homework solver".
-> It never asks for, stores or transmits real credentials. Do not enter real passwords, real
-> IC/passport numbers or any sensitive personal data — dummy data only.
+- **Red Team** — a fake "free AI homework" helper. It gives a teaser answer and then asks
+  for a student profile (name, matric, phone, date of birth, security question) to "unlock"
+  the rest. Everything entered is dummy data by design.
+- **Blue Team** — the same helper done safely: no profile required, red flags called out,
+  and a short awareness check.
 
----
-
-## What it does
-
-| Mode | Experience |
-|---|---|
-| **Red Team** (default) | Dark `#0a0a0f` UI with crimson neon borders and an *Unverified AI Helper* badge. The helper gives a teaser answer, then locks the full solution behind a "Free Student Verification" form that asks for name, university, matric number, phone, date of birth, a security question and a PIN. After submitting, a **Simulated Attack Debrief** shows every field handed over, what each one is worth to an attacker, and the behavioural metrics captured silently. |
-| **Blue Team** | Warm ivory `#faf8f5` UI with blue/emerald accents, verified-domain and privacy badges. The same homework helper answers **immediately** with no personal data, publishes what it does and does not collect, offers a red-flag checklist, and runs a 3-question **Spot the Red Flags** awareness check with a scored result. |
-
-Switching modes swaps the theme, the form, the helper behaviour and the logged payload, and
-reveals an interactive **Red vs Blue comparison banner**.
-
-Other features:
-
-- Informed-consent gate on first load of a session.
-- Behavioural metrics: `time_to_submit_seconds`, `fields_filled_count`, `hesitation_clicks`.
-- **Password trap**: the PIN/password field is reduced to `entered: Yes/No` + length and wiped
-  from the field *before* any network call.
-- **Live Simulations Analytics** drawer: total participants, data-exposure rate, most compromised
-  field, Blue Team awareness score, recent activity — read live from your Google Sheet when
-  reachable, otherwise from the local log, otherwise from demo data.
-
----
+No framework, no build step, no dependencies.
 
 ## Files
 
-```
-EduAssist/
-├── index.html    # markup for both modes, consent modal, debrief, analytics drawer
-├── style.css     # design tokens + components; themes keyed on <html data-mode="red|blue">
-├── app.js        # mode switching, simulated helper, form/quiz logic, logging, analytics
-├── Code.gs       # Google Apps Script backend (doPost / doGet / auto-built dashboard)
-├── requirement.txt
-└── README.md
-```
-
-No build step, no framework, no backend server. Tailwind is loaded from the CDN for layout
-utilities; every theme-critical style lives in `style.css` so the app still looks right if the
-CDN is slow or blocked.
-
----
-
-## 1. Run it locally
-
-The app is static, but it must be served over HTTP for the Apps Script calls (and not opened as
-`file://`), because `file://` sends a `null` origin.
-
-```powershell
-cd "C:\Users\Eman\Desktop\ITT320 EduAssist"
-npx --yes serve . -l 5173
-```
-
-Then open <http://localhost:5173>. Try a sample prompt in Red Team mode, fill the form with fake
-data, read the debrief, then switch to Blue Team and take the awareness check.
-
-You can also use the VS Code "Live Server" extension — any static server works.
-
----
-
-## 2. Connect Google Sheets
-
-### 2.1 Create the spreadsheet and the script
-
-1. Go to <https://sheets.new> and name the file **EduAssist Simulation Log**.
-2. In the sheet: **Extensions ▸ Apps Script**.
-3. Delete the placeholder `myFunction` and paste the entire contents of `Code.gs` from this repo.
-4. **Save** (Ctrl+S). Name the project `EduAssist Logger`.
-
-### 2.2 Deploy as a Web App
-
-1. Top right: **Deploy ▸ New deployment**.
-2. Gear icon ▸ select type **Web app**.
-3. Set:
-   - **Description**: `EduAssist logging v1`
-   - **Execute as**: **Me**
-   - **Who has access**: **Anyone** *(required — the student browser is an anonymous caller)*
-4. **Deploy** → **Authorize access** → pick your Google account → *Advanced* →
-   *Go to EduAssist Logger (unsafe)* → **Allow**. This warning is normal for personal scripts.
-5. Copy the **Web app URL**. It ends in `/exec` and looks like:
-   `https://script.google.com/macros/s/AKfycb.../exec`
-
-### 2.3 The URL is already configured
-
-`app.js` already points at the deployed Web App, so the sheet starts receiving rows as soon as the
-site is served over HTTP:
-
-```js
-const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycb.../exec';
-```
-
-If you redeploy to a **new** URL, replace that constant. Keep the endpoint treated as public:
-anyone with the link can append rows, which is required for anonymous participants.
-
-> **Re-deploying after edits:** Apps Script keeps serving the old code until you publish a new
-> version. Use **Deploy ▸ Manage deployments ▸ ✏️ ▸ Version: New version ▸ Deploy**, keeping the
-> same `/exec` URL.
-
-### 2.4 Verify it works
-
-1. In the sheet, reload the page — a new **EduAssist** menu appears.
-2. **EduAssist ▸ Send a test row** → check that a row appears in `Raw_Responses` and the numbers
-   move in `Summary_Dashboard`.
-3. In the web app, complete a Red Team submission, then open **Live analytics** — the source
-   label should read *Google Sheet (live)*.
-
-### 2.5 Turn on live model answers (free)
-
-Without a key the helper falls back to hand-written teaching answers, clearly labelled
-**scripted fallback**. With a key it answers any prompt using Gemini Flash.
-
-1. Get a free key at <https://aistudio.google.com/apikey> (Google account, no billing needed).
-2. In the spreadsheet: **EduAssist ▸ Set Gemini API key…** and paste it.
-   *Alternative:* **Project Settings ▸ Script properties ▸ Add** `GEMINI_API_KEY`.
-3. **EduAssist ▸ Test live model** — you should see a two-sentence TCP/UDP answer.
-4. Reload the site and ask anything. The answer meta line should read **live model · gemini-3.8-flash**.
-
-Notes:
-
-- Script-property changes take effect immediately; **no redeploy is required**.
-- Free tier is roughly 1,500 Flash requests/day. If you hit the cap, the app logs the failure and
-  silently falls back to the scripted answers, so the demo never breaks.
-- To pin a different model, add a script property `GEMINI_MODEL` (e.g. `gemini-3.7-flash`).
-- Free-tier prompts may be used by Google to improve products. That is disclosed in Blue Team mode;
-  the simulation only ever sends the question text, never form data.
-
----
-
-## 3. Host it
-
-The app is three static files, so any host works:
-
-- **GitHub Pages** — *Settings ▸ Pages ▸ Deploy from a branch ▸ `main` / `root`*. Because of the
-  `/EduAssist/` sub-path, keep the relative `style.css` and `app.js` links as they are.
-- **Your own website** — upload `index.html`, `style.css` and `app.js` to the same folder. Do not
-  upload `Code.gs` (it is server-side Apps Script) or `requirement.txt` (it is the brief).
-
-The Apps Script side needs no changes when the site moves: the Web App URL is absolute.
-
----
-
-## 4. Data dictionary
-
-Every row in `Raw_Responses` uses this fixed column order (defined in `HEADERS` in `Code.gs`).
-
-| Column | Field | Values | Purpose |
-|---|---|---|---|
-| A | `timestamp` | ISO-8601 | When the event happened |
-| B | `session_id` | UUID | Anonymous browser session |
-| C | `event` | `session_start`, `mode_switch`, `red_submit`, `blue_check` | Which interaction |
-| D | `mode` | `Red_Team`, `Blue_Team` | Active mode at the time |
-| E | `dummy_name` | text | Dummy name (Red) or optional nickname (Blue) |
-| F | `university` | text | Dummy university |
-| G | `student_id_provided` | `Yes` / `No` | Matric field filled |
-| H | `phone_provided` | `Yes` / `No` | Phone field filled |
-| I | `security_q_provided` | `Yes` / `No` | Security question + answer filled |
-| J | `password_trap_triggered` | `Yes` / `No` | PIN field used (**never the value**) |
-| K | `time_taken_sec` | integer | First interaction → submit (the brief's `time_to_submit_seconds`) |
-| L | `fields_filled_count` | 0–8 | How much of the form was completed |
-| M | `hesitation_clicks` | integer | "Why is this needed?" + lock clicks |
-| N | `awareness_score` | 0–100 | Blue Team quiz score |
-| O | `user_verdict` | text | `completed red team lure`, `High awareness`, … |
-| P | `prompt_category` | text | `business_strategy`, `programming`, `networking`, `custom` |
-| Q | `dummy_student_id` | text | The dummy matric number typed into the form |
-| R | `dummy_phone` | text | The dummy phone/WhatsApp number typed in |
-| S | `dummy_dob` | text | The dummy date of birth |
-| T | `security_question` | text | Selected question (e.g. "First pet's name") |
-| U | `security_answer` | text | The dummy answer typed in |
-| V | `prompt_text` | text | What the participant asked the helper (300 chars) |
-| W | `password_length` | integer | Length only — **the value is never sent** |
-
-### Summary_Dashboard
-
-Plain-language, non-technical, and built with live formulas — it answers *what private data did
-students give away?*:
-
-- **The result** — students who tried the trap, how many handed over private data, the share who
-  gave something away, and the most-handed-over detail.
-- **Which private details** — Student ID, phone, security answer and PIN, each as a count plus a
-  share of everyone who tried the trap.
-- **Did the lesson land** — how many took the awareness check, the average score, and how many
-  scored 80+.
-- **Read it like this** — one sentence that writes itself from the numbers.
-
-Technical counters (timings, hesitation clicks, mode switches, per-event rows) stay in
-`Raw_Responses` for anyone who wants them.
-
-Run **EduAssist ▸ Rebuild summary dashboard** once after updating `Code.gs` — the dashboard is
-rebuilt whenever its layout marker changes.
-
-### Captured_Profiles
-
-The "what did we actually collect" view: one row per completed Red Team trap, rebuilt from
-`Raw_Responses` automatically on every submission (or **EduAssist ▸ Rebuild captured profiles**).
-
-| Column | Shows |
+| File | What |
 |---|---|
-| When | Friendly timestamp (e.g. `16 Nov 2026, 14:03`) |
-| Dummy name / University | What was typed |
-| Student ID / Phone / DOB | The dummy values |
-| Security question / answer | The selected question and dummy answer |
-| PIN entered / PIN length | `Yes`/`No` and the length only |
-| Sensitive fields | 0–4 count |
-| Risk level | `HIGH` (3–4 fields), `MEDIUM` (2), `LOW` (1), `NONE` |
-| Time to submit / Fields filled / Hesitation clicks | Behavioural signals |
-| What they asked | The prompt they typed |
+| `index.html` | markup for both modes, consent gate, analytics drawer |
+| `style.css` | theme tokens (Red/Blue) and components |
+| `app.js` | behaviour, logging, consent, mode switch |
+| `Code.gs` | Google Apps Script `doPost` endpoint that writes rows to a Sheet |
 
-Risk cells are colour-coded red/amber/green, the header row is frozen and filterable, and a banner
-at the top states that every row is fabricated. This sheet is what to screenshot for the report.
+## Run it
 
----
+Open `index.html` directly, or serve the folder:
 
-## 5. What the app deliberately does *not* do
-
-- **No real passwords.** `readPasswordFlag()` in `app.js` reads the value, keeps only the length,
-  and blanks the input before building the payload. The raw string never reaches state,
-  `localStorage` or the network. The sheet only ever sees `Yes`/`No` and a length.
-- **Dummy form values *are* stored** — that is the point of the exercise: the report needs to show
-  exactly what an attacker would walk away with. The consent screen and the sheet banner both say
-  the data must be fabricated, and the demo runs behind your sandbox PIN.
-- **No third-party analytics or fonts beyond Google Fonts / Tailwind CDN.** No tracking pixels.
-- **No authentication.** This is a demo; the sheet endpoint accepts anonymous writes by design
-  so participants can submit from their own phones. If you run it with a real cohort, consider
-  rate-limiting or a shared secret in the payload.
-- **Live model, with a fallback.** Answers come from `gemini-3.8-flash` through your Apps Script
-  proxy, so the API key stays server-side. If the key is missing, quota is exhausted or the
-  network fails, the helper silently falls back to hand-written teaching answers and labels the
-  response *scripted fallback*.
-
----
-
-## 6. Troubleshooting
-
-| Symptom | Cause | Fix |
-|---|---|---|
-| Analytics shows *local log* even after submitting | URL empty or fetch blocked | Check `GOOGLE_SCRIPT_URL` ends in `/exec`; reload; open the drawer's **Refresh** |
-| Answers say *scripted fallback* | No `GEMINI_API_KEY`, wrong key, or quota exhausted | Run **EduAssist ▸ Test live model**; check the error text it prints |
-| `NO_API_KEY` in the Apps Script log | Property not saved on the deployment's project | Add `GEMINI_API_KEY` in **Project Settings ▸ Script properties** |
-| Rows never appear in the sheet | Deployment access not set to **Anyone** | Manage deployments → edit → *Who has access: Anyone* → new version → deploy |
-| `401` / "Script function not found" | You deployed the wrong project | Confirm the deployment points at the project containing `doPost` |
-| Sheet has data, app shows demo data | Local log empty **and** JSONP blocked | The drawer falls back to demo only when both sources fail; check the browser console |
-| CORS error in console | Apps Script does not send CORS headers on GET | Expected — the app retries automatically via JSONP |
-| Mode switch resets the answer area | Intentional | Each mode re-asks the helper so answers are not carried across modes |
-| `ReferenceError: GOOGLE_SCRIPT_URL` | `app.js` edited but not saved | Save and hard-reload (Ctrl+F5) |
-
----
-
-## 7. Pushing changes
-
-```powershell
-git add -A
-git commit -m "Describe the change"
-git push
+```bash
+python3 -m http.server 8000
 ```
 
-Deployment checklist for submission:
+Logging is optional. Set `GOOGLE_SCRIPT_URL` in `app.js` to your Apps Script web app URL;
+with it empty the app runs local-only and keeps rows in `localStorage`.
 
-1. `GOOGLE_SCRIPT_URL` filled in and the sheet receiving rows.
-2. `Summary_Dashboard` showing non-zero metrics.
-3. Consent modal appears on a fresh session.
-4. Red mode form → debrief works; Blue mode quiz → score works.
-5. Repo pushed, Pages/site URL added to the report.
+## Where the data goes
+
+`Code.gs` writes one row per event to `Raw_Responses`, and builds `Summary_Dashboard`
+(totals, exposure rate, awareness score) and `Captured_Profiles` from it.
+
+The password field never leaves the browser as text — only whether something was typed and
+how long it was.
+
+## Notes
+
+The consent gate is part of the lesson: the simulation deliberately asks for data a real
+service should never ask for, and the debrief explains why each field matters.
