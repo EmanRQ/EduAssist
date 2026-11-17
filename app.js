@@ -511,14 +511,31 @@ function unlockPageScroll() {
   }
 }
 
+/*
+ * The gate is taken out of the document when it closes, not just hidden, and
+ * put back if the notice is reviewed from the footer. A full-screen fixed
+ * dialog with a backdrop filter can leave the browser's page scroller detached
+ * or a stale composited layer behind; the symptom is a page that will not
+ * scroll under a finger even though the mouse wheel still moves it.
+ */
+let consentNode = null;
+
 function showConsent() {
-  $('#consentOverlay').hidden = false;
+  if (!consentNode) consentNode = $('#consentOverlay');
+  if (!consentNode) return;
+  if (!consentNode.isConnected) document.body.insertBefore(consentNode, document.body.firstChild);
+  consentNode.hidden = false;
   lockPageScroll();
   $('#consentAccept').focus();
 }
 
 function hideConsent() {
-  $('#consentOverlay').hidden = true;
+  const overlay = consentNode || $('#consentOverlay');
+  if (overlay) {
+    consentNode = overlay;
+    overlay.hidden = true;
+    overlay.remove();
+  }
   unlockPageScroll();
 }
 
