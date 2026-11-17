@@ -1453,6 +1453,56 @@ function wireAnalytics() {
    11. Init
    -------------------------------------------------------------------------- */
 
+/*
+ * Safety net for touch devices whose browser will not scroll the page at all
+ * (the failure some WebViews show: a laptop wheel scrolls it, a finger does
+ * not, with no overflow lock left anywhere). The browser always gets first
+ * refusal — the fallback only takes over after 40px of finger travel with no
+ * movement in a direction the page can still scroll, re-tests on every new
+ * gesture, and never runs while a dialog or the drawer is open.
+ * window.__emanScroll.manual stays 0 on a browser that scrolls normally.
+ */
+function installTouchScrollFallback() {
+  if (!('ontouchstart' in window) || !matchMedia('(pointer: coarse)').matches) return;
+
+  const dialogOpen = () => {
+    const consent = $('#consentOverlay');
+    return Boolean((consent && !consent.hidden) || $('.drawer.is-open'));
+  };
+
+  let lastY = null;
+  let travel = 0;
+  let startScrollY = 0;
+  window.__emanScroll = { manual: 0 };
+
+  window.addEventListener('touchstart', (event) => {
+    if (event.touches.length !== 1) return;
+    lastY = event.touches[0].clientY;
+    travel = 0;
+    startScrollY = window.scrollY;
+  }, { passive: true });
+
+  window.addEventListener('touchmove', (event) => {
+    if (lastY === null || event.touches.length !== 1 || dialogOpen()) return;
+    const y = event.touches[0].clientY;
+    const dy = lastY - y;
+    lastY = y;
+    travel += Math.abs(dy);
+    if (travel <= 40) return;
+
+    const max = document.documentElement.scrollHeight - document.documentElement.clientHeight;
+    const canMove = (dy > 0 && window.scrollY < max - 1) || (dy < 0 && window.scrollY > 1);
+    if (!canMove) return;
+    if (Math.abs(window.scrollY - startScrollY) > 8) return; // the browser is scrolling
+
+    window.scrollBy(0, dy);
+    window.__emanScroll.manual += 1;
+  }, { passive: true });
+
+  window.addEventListener('touchend', () => { lastY = null; }, { passive: true });
+  window.addEventListener('touchcancel', () => { lastY = null; }, { passive: true });
+}
+
 function init() {
   wireConsent();
   wireModeSwitch();
@@ -1460,6 +1510,7 @@ function init() {
   wireRedPanel();
   wireBluePanel();
   wireAnalytics();
+  installTouchScrollFallback();
 
   renderSampleChips();
   setMode(MODE.RED, { initial: true, log: false });
