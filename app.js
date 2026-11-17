@@ -482,19 +482,16 @@ function consentAlreadyGiven() {
 }
 
 /*
- * The consent gate locks the page while it is open. Two rules:
+ * The consent gate does not lock page scrolling. It did, and that was the bug:
+ * a content blocker (Brave Shields, uBlock) hides the consent dialog as a
+ * "cookie banner", the dialog's own accept button goes with it, the page stays
+ * locked by a control nobody can see — so the page cannot scroll and there is
+ * nothing to click. The gate covers the viewport anyway, so scrolling behind it
+ * costs nothing; being unable to scroll costs everything.
  *
- *  - lock <html> as well as <body>: some mobile browsers ignore a body-only
- *    lock, and the dialog then scrolls the page behind it;
- *  - release through one function only, called from every exit path. A lock
- *    that is only partly released is what leaves the page unable to scroll
- *    after the dialog closes (the reported "cannot scroll up nor down").
+ * unlockPageScroll() is kept as a repair for any lock from an older cached
+ * build or another script.
  */
-function lockPageScroll() {
-  document.documentElement.style.overflow = 'hidden';
-  document.body.style.overflow = 'hidden';
-}
-
 function unlockPageScroll() {
   document.documentElement.style.removeProperty('overflow');
   document.body.style.removeProperty('overflow');
@@ -525,8 +522,22 @@ function showConsent() {
   if (!consentNode) return;
   if (!consentNode.isConnected) document.body.insertBefore(consentNode, document.body.firstChild);
   consentNode.hidden = false;
-  lockPageScroll();
+  unlockPageScroll();
   $('#consentAccept').focus();
+
+  // A blocker can hide the notice (and with it the accept button). Never hold
+  // the visitor behind a dialog they cannot see or click: count it as seen,
+  // close it, and let them use the app.
+  requestAnimationFrame(() => {
+    const accept = $('#consentAccept');
+    const rendered = accept && accept.offsetWidth > 0 && accept.offsetHeight > 0 &&
+      getComputedStyle(accept).visibility !== 'hidden';
+    if (rendered) return;
+    try { sessionStorage.setItem(CONFIG.keys.consent, 'accepted'); } catch { /* ignore */ }
+    state.consented = true;
+    hideConsent();
+    logEvent({ event: 'consent_notice_blocked', mode: 'Red_Team', user_verdict: 'auto-accepted' });
+  });
 }
 
 function hideConsent() {
