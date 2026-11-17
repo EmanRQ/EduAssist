@@ -1513,6 +1513,90 @@ function installTouchScrollFallback() {
   window.addEventListener('touchcancel', () => { lastY = null; }, { passive: true });
 }
 
+/*
+ * Opt-in diagnostics: open the page with ?diag=1.
+ * Shows exactly what is needed to explain "cannot scroll" without a desktop
+ * debugger: document vs viewport height, computed overflow on <html>/<body>,
+ * whether the consent dialog is still in the document, whether wheel/touch
+ * events reach the page at all, and whether a programmatic scroll moves it.
+ */
+function installDiagnostics() {
+  if (!/[?&]diag=1(&|$)/.test(location.search)) return;
+  const seen = { wheel: 0, touch: 0, test: 'not run' };
+
+  const box = document.createElement('div');
+  box.setAttribute('role', 'status');
+  box.style.cssText = [
+    'position:fixed', 'left:8px', 'right:8px', 'bottom:8px', 'z-index:2147483647',
+    'max-height:62vh', 'overflow:auto', 'background:rgba(8,10,24,.96)', 'color:#dbe4ff',
+    'border:1px solid #4c6ef5', 'border-radius:12px', 'padding:10px 12px',
+    'font:12px/1.5 ui-monospace,Consolas,monospace', 'white-space:pre-wrap',
+  ].join(';');
+
+  const out = document.createElement('div');
+  const bar = document.createElement('div');
+  bar.style.cssText = 'display:flex;gap:8px;margin-top:8px';
+
+  const mkButton = (label) => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = label;
+    b.style.cssText = 'padding:6px 10px;border-radius:8px;border:1px solid #748ffc;background:#2b3a8f;color:#fff;font:inherit';
+    return b;
+  };
+  const testBtn = mkButton('Test scroll');
+  const closeBtn = mkButton('Close');
+  bar.append(testBtn, closeBtn);
+  box.append(out, bar);
+  document.body.appendChild(box);
+
+  const snapshot = () => {
+    const d = document.documentElement;
+    return {
+      build: (document.querySelector('#buildStamp') || {}).textContent || 'n/a',
+      viewport: innerWidth + 'x' + innerHeight,
+      document: d.scrollWidth + 'x' + d.scrollHeight,
+      maxScroll: d.scrollHeight - d.clientHeight,
+      scrollY: Math.round(scrollY),
+      htmlOverflow: getComputedStyle(d).overflow,
+      bodyOverflow: getComputedStyle(document.body).overflow,
+      bodyInlineOverflow: document.body.style.overflow || '(none)',
+      consentInPage: Boolean(document.querySelector('#consentOverlay')),
+      scrollBehavior: getComputedStyle(d).scrollBehavior,
+      pointer: matchMedia('(pointer: coarse)').matches ? 'coarse' : 'fine',
+      wheelEvents: seen.wheel,
+      touchMoves: seen.touch,
+      programmaticScroll: seen.test,
+      userAgent: navigator.userAgent,
+    };
+  };
+
+  const render = () => {
+    out.textContent = Object.entries(snapshot()).map(([k, v]) => k + ': ' + v).join('\n');
+  };
+
+  testBtn.addEventListener('click', () => {
+    const d = document.documentElement;
+    const previous = d.style.scrollBehavior;
+    d.style.scrollBehavior = 'auto';
+    const before = Math.round(scrollY);
+    window.scrollBy(0, 200);
+    const after = Math.round(scrollY);
+    window.scrollTo(0, before);
+    d.style.scrollBehavior = previous;
+    seen.test = after > before ? `works (${before} -> ${after})` : `BLOCKED (stayed at ${before})`;
+    render();
+  });
+
+  closeBtn.addEventListener('click', () => { box.remove(); });
+
+  window.addEventListener('wheel', () => { seen.wheel += 1; render(); }, { passive: true });
+  window.addEventListener('touchmove', () => { seen.touch += 1; render(); }, { passive: true });
+  window.addEventListener('resize', render);
+  setInterval(render, 1500);
+  render();
+}
+
 function init() {
   wireConsent();
   wireModeSwitch();
@@ -1541,6 +1625,23 @@ function init() {
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'visible') releaseIfConsentClosed();
   });
+
+  // Desktop Chromium honours `overflow: hidden` on <body> (it loses the
+  // scrollbar and stops scrolling entirely) while phone browsers ignore it.
+  // So a leftover lock is invisible on a phone and fatal on a desktop. Once
+  // things have settled, repair any such state that is not ours.
+  window.addEventListener('load', () => {
+    requestAnimationFrame(() => {
+      const doc = document.documentElement;
+      const consent = $('#consentOverlay');
+      if (consent && !consent.hidden) return;
+      if (doc.scrollHeight <= doc.clientHeight + 4) return;
+      if (getComputedStyle(doc).overflow === 'hidden') doc.style.overflow = 'auto';
+      if (getComputedStyle(document.body).overflow === 'hidden') document.body.style.overflow = 'auto';
+    });
+  });
+
+  installDiagnostics();
 
   window.addEventListener('online', flushPending);
   flushPending();
