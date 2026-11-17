@@ -1457,7 +1457,7 @@ function wireAnalytics() {
  * Safety net for touch devices whose browser will not scroll the page at all
  * (the failure some WebViews show: a laptop wheel scrolls it, a finger does
  * not, with no overflow lock left anywhere). The browser always gets first
- * refusal — the fallback only takes over after 40px of finger travel with no
+ * refused — the fallback only takes over after 24px of finger travel with no
  * movement in a direction the page can still scroll, re-tests on every new
  * gesture, and never runs while a dialog or the drawer is open.
  * window.__emanScroll.manual stays 0 on a browser that scrolls normally.
@@ -1488,13 +1488,15 @@ function installTouchScrollFallback() {
     const dy = lastY - y;
     lastY = y;
     travel += Math.abs(dy);
-    if (travel <= 40) return;
+    if (travel <= 24) return;
 
     const max = document.documentElement.scrollHeight - document.documentElement.clientHeight;
     const canMove = (dy > 0 && window.scrollY < max - 1) || (dy < 0 && window.scrollY > 1);
     if (!canMove) return;
     if (Math.abs(window.scrollY - startScrollY) > 8) return; // the browser is scrolling
 
+    // Track the finger exactly; smooth scrolling would lag behind it.
+    document.documentElement.style.scrollBehavior = 'auto';
     window.scrollBy(0, dy);
     window.__emanScroll.manual += 1;
   }, { passive: true });
