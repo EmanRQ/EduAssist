@@ -1473,6 +1473,7 @@ function installTouchScrollFallback() {
   let lastY = null;
   let travel = 0;
   let startScrollY = 0;
+  let takingOver = false;
   window.__emanScroll = { manual: 0 };
 
   window.addEventListener('touchstart', (event) => {
@@ -1480,6 +1481,7 @@ function installTouchScrollFallback() {
     lastY = event.touches[0].clientY;
     travel = 0;
     startScrollY = window.scrollY;
+    takingOver = false;
   }, { passive: true });
 
   window.addEventListener('touchmove', (event) => {
@@ -1488,15 +1490,21 @@ function installTouchScrollFallback() {
     const dy = lastY - y;
     lastY = y;
     travel += Math.abs(dy);
-    if (travel <= 24) return;
+
+    if (!takingOver) {
+      // Give the browser a clear chance: 48px of finger, and it must have
+      // moved the page by at least a pixel or two before we consider it dead.
+      if (travel <= 48) return;
+      if (Math.abs(window.scrollY - startScrollY) > 2) return;
+      takingOver = true;
+      // Track the finger exactly from here; smooth scrolling would lag.
+      document.documentElement.style.scrollBehavior = 'auto';
+    }
 
     const max = document.documentElement.scrollHeight - document.documentElement.clientHeight;
     const canMove = (dy > 0 && window.scrollY < max - 1) || (dy < 0 && window.scrollY > 1);
     if (!canMove) return;
-    if (Math.abs(window.scrollY - startScrollY) > 8) return; // the browser is scrolling
 
-    // Track the finger exactly; smooth scrolling would lag behind it.
-    document.documentElement.style.scrollBehavior = 'auto';
     window.scrollBy(0, dy);
     window.__emanScroll.manual += 1;
   }, { passive: true });
