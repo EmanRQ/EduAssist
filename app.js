@@ -1567,6 +1567,13 @@ function installDiagnostics() {
 
   const snapshot = () => {
     const d = document.documentElement;
+    const atCenter = document.elementFromPoint(innerWidth / 2, innerHeight / 2);
+    const fullScreenFixed = Array.from(document.querySelectorAll('body > *')).filter((el) => {
+      const style = getComputedStyle(el);
+      if (style.display === 'none' || style.position !== 'fixed') return false;
+      const r = el.getBoundingClientRect();
+      return r.width >= innerWidth - 2 && r.height >= innerHeight - 2;
+    }).map((el) => el.id || String(el.className) || el.tagName);
     return {
       build: (document.querySelector('#buildStamp') || {}).textContent || 'n/a',
       viewport: innerWidth + 'x' + innerHeight,
@@ -1577,6 +1584,8 @@ function installDiagnostics() {
       bodyOverflow: getComputedStyle(document.body).overflow,
       bodyInlineOverflow: document.body.style.overflow || '(none)',
       consentInPage: Boolean(document.querySelector('#consentOverlay')),
+      topElementAtCenter: atCenter ? (atCenter.id || String(atCenter.className) || atCenter.tagName) : 'none',
+      fullScreenFixed: fullScreenFixed.join(',') || 'none',
       scrollBehavior: getComputedStyle(d).scrollBehavior,
       pointer: matchMedia('(pointer: coarse)').matches ? 'coarse' : 'fine',
       wheelEvents: seen.wheel,
