@@ -1524,13 +1524,23 @@ function installDiagnostics() {
   if (!/[?&]diag=1(&|$)/.test(location.search)) return;
   const seen = { wheel: 0, touch: 0, test: 'not run' };
 
+  const pill = document.createElement('button');
+  pill.type = 'button';
+  pill.textContent = 'diag';
+  pill.style.cssText = [
+    'position:fixed', 'right:8px', 'bottom:8px', 'z-index:2147483647',
+    'padding:6px 12px', 'border-radius:999px', 'border:1px solid #4c6ef5',
+    'background:#2b3a8f', 'color:#fff', 'font:12px/1 ui-monospace,Consolas,monospace',
+  ].join(';');
+
   const box = document.createElement('div');
   box.setAttribute('role', 'status');
   box.style.cssText = [
-    'position:fixed', 'left:8px', 'right:8px', 'bottom:8px', 'z-index:2147483647',
-    'max-height:62vh', 'overflow:auto', 'background:rgba(8,10,24,.96)', 'color:#dbe4ff',
+    'position:fixed', 'left:8px', 'right:8px', 'bottom:52px', 'z-index:2147483647',
+    'max-height:60vh', 'overflow:auto', 'background:rgba(8,10,24,.96)', 'color:#dbe4ff',
     'border:1px solid #4c6ef5', 'border-radius:12px', 'padding:10px 12px',
     'font:12px/1.5 ui-monospace,Consolas,monospace', 'white-space:pre-wrap',
+    'display:none',
   ].join(';');
 
   const out = document.createElement('div');
@@ -1548,7 +1558,12 @@ function installDiagnostics() {
   const closeBtn = mkButton('Close');
   bar.append(testBtn, closeBtn);
   box.append(out, bar);
-  document.body.appendChild(box);
+  document.body.append(pill, box);
+
+  pill.addEventListener('click', () => {
+    box.style.display = box.style.display === 'none' ? 'block' : 'none';
+    render();
+  });
 
   const snapshot = () => {
     const d = document.documentElement;
@@ -1574,7 +1589,6 @@ function installDiagnostics() {
   const render = () => {
     out.textContent = Object.entries(snapshot()).map(([k, v]) => k + ': ' + v).join('\n');
   };
-
   testBtn.addEventListener('click', () => {
     const d = document.documentElement;
     const previous = d.style.scrollBehavior;
@@ -1588,7 +1602,7 @@ function installDiagnostics() {
     render();
   });
 
-  closeBtn.addEventListener('click', () => { box.remove(); });
+  closeBtn.addEventListener('click', () => { box.style.display = 'none'; });
 
   window.addEventListener('wheel', () => { seen.wheel += 1; render(); }, { passive: true });
   window.addEventListener('touchmove', () => { seen.touch += 1; render(); }, { passive: true });
